@@ -220,42 +220,42 @@ export default function ChessGame() {
     }
   }, [moveHistory]);
 
-  function onDrop(sourceSquare: Square, targetSquare: Square, piece: string) {
-    if (thinking || game.isGameOver()) return false;
-
-    const isPlayerTurn =
-      (game.turn() === "w" && playerColor === "white") ||
-      (game.turn() === "b" && playerColor === "black");
-    if (!isPlayerTurn) return false;
-
-    // After the promotion dialog fires, piece is the chosen piece (e.g. "wQ"), not "wP".
-    // Detect a promotion by source/target rank, then extract the letter from piece.
-    const pieceType = piece[1]?.toLowerCase();
-    const isPromotionMove =
-      (sourceSquare[1] === "7" && targetSquare[1] === "8") ||
-      (sourceSquare[1] === "2" && targetSquare[1] === "1");
-    const promotion =
-      isPromotionMove && pieceType !== "p"
-        ? (pieceType as "q" | "r" | "b" | "n")
-        : undefined;
-
+  function makeMove(g: Chess, from: Square, to: Square, promotion?: "q" | "r" | "b" | "n") {
     try {
-      const newGame = new Chess(game.fen());
-      const move = newGame.move({ from: sourceSquare, to: targetSquare, promotion });
+      const newGame = new Chess(g.fen());
+      const move = newGame.move({ from, to, promotion });
       if (!move) return false;
-
       setGame(newGame);
       setFen(newGame.fen());
       setMoveHistory((h) => [...h, move.san]);
       updateStatus(newGame);
-
-      if (!newGame.isGameOver()) {
-        setTimeout(() => runBotMove(newGame), 100);
-      }
+      if (!newGame.isGameOver()) setTimeout(() => runBotMove(newGame), 100);
       return true;
     } catch {
       return false;
     }
+  }
+
+  // Promotion is handled here. We return false so react-chessboard does NOT
+  // call handleSetPosition (which would trigger a second onPieceDrop call).
+  // Changing `fen` triggers the board's external-position useEffect which
+  // calls clearPromotion() and closes the dialog automatically.
+  function onPromotionSelect(piece?: string, from?: Square, to?: Square): boolean {
+    if (!piece || !from || !to) return false;
+    const promotion = piece[1]?.toLowerCase() as "q" | "r" | "b" | "n";
+    makeMove(game, from, to, promotion);
+    return false;
+  }
+
+  function onDrop(sourceSquare: Square, targetSquare: Square) {
+    if (thinking || game.isGameOver()) return false;
+    const isPlayerTurn =
+      (game.turn() === "w" && playerColor === "white") ||
+      (game.turn() === "b" && playerColor === "black");
+    if (!isPlayerTurn) return false;
+    // Promotions are intercepted by react-chessboard before onDrop is called,
+    // so this handler only ever sees normal (non-promotion) moves.
+    return makeMove(game, sourceSquare, targetSquare);
   }
 
   function resetGame() {
@@ -367,6 +367,7 @@ export default function ChessGame() {
             id="chess-board"
             position={fen}
             onPieceDrop={onDrop}
+            onPromotionPieceSelect={onPromotionSelect}
             boardOrientation={playerColor}
             areArrowsAllowed={true}
             customBoardStyle={{

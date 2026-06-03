@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import HangmanDrawing from "./HangmanDrawing";
 import { getRandomWordAndCategory, DIFFICULTY_CONFIG, Difficulty } from "./words";
 
-const MAX_WRONG = 6;
+const MAX_WRONG = 9;
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz".split("");
 
 export default function HangmanGame() {
