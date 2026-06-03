@@ -25,6 +25,14 @@ const games = [
     color: "from-blue-900 to-blue-700",
     border: "border-blue-800",
   },
+  {
+    href: "/wrestling",
+    title: "Wrestling Quiz",
+    description: "How well do you know your wrestling? Finishing moves, catchphrases, real names and more!",
+    emoji: "🤼",
+    color: "from-yellow-900 to-yellow-700",
+    border: "border-yellow-800",
+  },
 ];
 
 const comingSoon = [
