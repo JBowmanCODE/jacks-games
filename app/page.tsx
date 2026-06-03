@@ -17,11 +17,18 @@ const games = [
     color: "from-red-900 to-red-700",
     border: "border-red-800",
   },
+  {
+    href: "/sudoku",
+    title: "Sudoku",
+    description: "Fill every row, column and 3×3 box with 1–9. Easy, Medium and Hard puzzles.",
+    emoji: "🔢",
+    color: "from-blue-900 to-blue-700",
+    border: "border-blue-800",
+  },
 ];
 
 const comingSoon = [
   { title: "Wordle", emoji: "🔤", color: "from-green-900 to-green-700" },
-  { title: "Sudoku", emoji: "🔢", color: "from-blue-900 to-blue-700" },
   { title: "Snake", emoji: "🐍", color: "from-emerald-900 to-emerald-700" },
 ];
 
