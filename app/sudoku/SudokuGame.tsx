@@ -47,7 +47,7 @@ export default function SudokuGame() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [started, won]);
 
-  // Enter a number into the selected cell
+  // Enter a number into the selected cell, then clear selection (one box at a time)
   const enterNumber = useCallback((num: number | null) => {
     setBoard((prev) => {
       if (!prev || !puzzle || !solution || !selected) return prev;
@@ -64,6 +64,9 @@ export default function SudokuGame() {
         else e.delete(key);
         return e;
       });
+
+      // Deselect after entry so player must tap next cell (one box at a time)
+      setSelected(null);
 
       // Win check
       if (isBoardComplete(next, solution)) setWon(true);

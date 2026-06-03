@@ -71,9 +71,9 @@ function generateSolution(): number[][] {
 
 // Cells to REMOVE per difficulty
 const REMOVE: Record<Difficulty, number> = {
-  easy: 35,    // ~46 given — lots of clues for 8 year olds
-  medium: 46,  // ~35 given — standard Sudoku
-  hard: 56,    // ~25 given — tough for 16+
+  easy: 20,    // ~61 given — super easy, very few blanks for 8 year olds
+  medium: 40,  // ~41 given — moderate challenge for 10+
+  hard: 58,    // ~23 given — tough for 16+
 };
 
 export function generatePuzzle(difficulty: Difficulty): {

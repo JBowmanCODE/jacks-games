@@ -33,6 +33,14 @@ const games = [
     color: "from-yellow-900 to-yellow-700",
     border: "border-yellow-800",
   },
+  {
+    href: "/football",
+    title: "Football Top Trumps",
+    description: "Pick your best stat and go head-to-head with 50+ legends and current stars.",
+    emoji: "⚽",
+    color: "from-green-900 to-green-700",
+    border: "border-green-800",
+  },
 ];
 
 const comingSoon = [
