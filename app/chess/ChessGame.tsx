@@ -228,11 +228,16 @@ export default function ChessGame() {
       (game.turn() === "b" && playerColor === "black");
     if (!isPlayerTurn) return false;
 
-    const promotion = piece[1]?.toLowerCase() === "p" &&
-      ((targetSquare[1] === "8" && playerColor === "white") ||
-       (targetSquare[1] === "1" && playerColor === "black"))
-      ? "q"
-      : undefined;
+    // After the promotion dialog fires, piece is the chosen piece (e.g. "wQ"), not "wP".
+    // Detect a promotion by source/target rank, then extract the letter from piece.
+    const pieceType = piece[1]?.toLowerCase();
+    const isPromotionMove =
+      (sourceSquare[1] === "7" && targetSquare[1] === "8") ||
+      (sourceSquare[1] === "2" && targetSquare[1] === "1");
+    const promotion =
+      isPromotionMove && pieceType !== "p"
+        ? (pieceType as "q" | "r" | "b" | "n")
+        : undefined;
 
     try {
       const newGame = new Chess(game.fen());
