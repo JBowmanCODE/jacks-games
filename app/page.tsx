@@ -41,10 +41,17 @@ const games = [
     color: "from-green-900 to-green-700",
     border: "border-green-800",
   },
+  {
+    href: "/wordle",
+    title: "Wordle",
+    description: "Guess the hidden word in 6 tries. Green = right place, yellow = wrong place.",
+    emoji: "🟩",
+    color: "from-teal-900 to-teal-700",
+    border: "border-teal-800",
+  },
 ];
 
 const comingSoon = [
-  { title: "Wordle", emoji: "🔤", color: "from-green-900 to-green-700" },
   { title: "Snake", emoji: "🐍", color: "from-emerald-900 to-emerald-700" },
 ];
 
