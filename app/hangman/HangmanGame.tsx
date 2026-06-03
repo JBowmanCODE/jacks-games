@@ -2,26 +2,25 @@
 
 import { useState, useEffect, useCallback } from "react";
 import HangmanDrawing from "./HangmanDrawing";
-import { getRandomWordAndCategory } from "./words";
+import { getRandomWordAndCategory, DIFFICULTY_CONFIG, Difficulty } from "./words";
 
 const MAX_WRONG = 6;
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz".split("");
 
 export default function HangmanGame() {
+  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [word, setWord] = useState("");
   const [category, setCategory] = useState("");
   const [guessed, setGuessed] = useState<Set<string>>(new Set());
+  const [started, setStarted] = useState(false);
 
-  const initGame = useCallback(() => {
-    const { word: w, category: c } = getRandomWordAndCategory();
+  const initGame = useCallback((diff: Difficulty) => {
+    const { word: w, category: c } = getRandomWordAndCategory(diff);
     setWord(w);
     setCategory(c);
     setGuessed(new Set());
+    setStarted(true);
   }, []);
-
-  useEffect(() => {
-    initGame();
-  }, [initGame]);
 
   const wrongGuesses = ALPHABET.filter((l) => guessed.has(l) && !word.includes(l));
   const wrongCount = wrongGuesses.length;
@@ -39,17 +38,69 @@ export default function HangmanGame() {
       const l = e.key.toLowerCase();
       if (/^[a-z]$/.test(l)) guess(l);
     }
-    window.addEventListener("keydown", handleKey);
+    if (started) window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   });
 
-  if (!word) return null;
+  // Difficulty picker screen
+  if (!started) {
+    return (
+      <div className="flex flex-col items-center gap-8 px-4">
+        <div className="text-center">
+          <h1 className="mb-2 text-3xl sm:text-4xl font-extrabold text-white">💀 Hangman</h1>
+          <p className="text-gray-400 text-sm sm:text-base">Choose your difficulty to start</p>
+        </div>
+
+        <div className="w-full max-w-sm space-y-3">
+          {(["easy", "medium", "hard"] as Difficulty[]).map((d) => {
+            const cfg = DIFFICULTY_CONFIG[d];
+            const colors = {
+              easy:   "border-green-700 bg-gradient-to-r from-green-900 to-green-800 hover:from-green-800 hover:to-green-700",
+              medium: "border-yellow-700 bg-gradient-to-r from-yellow-900 to-yellow-800 hover:from-yellow-800 hover:to-yellow-700",
+              hard:   "border-red-700 bg-gradient-to-r from-red-900 to-red-800 hover:from-red-800 hover:to-red-700",
+            }[d];
+            return (
+              <button
+                key={d}
+                onClick={() => {
+                  setDifficulty(d);
+                  initGame(d);
+                }}
+                className={`w-full rounded-2xl border ${colors} p-4 sm:p-5 text-left transition-all active:scale-95`}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-lg font-bold text-white">
+                      {cfg.emoji} {cfg.label}
+                    </p>
+                    <p className="text-sm text-gray-300">{cfg.age}</p>
+                  </div>
+                  <span className="text-2xl opacity-60">→</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <a
+          href="/"
+          className="rounded-xl border border-gray-700 bg-[#1a1a2e] px-6 py-2.5 text-sm font-semibold text-gray-400 hover:bg-gray-800 transition-colors"
+        >
+          ← Games
+        </a>
+      </div>
+    );
+  }
+
+  const cfg = DIFFICULTY_CONFIG[difficulty];
 
   return (
     <div className="flex flex-col items-center gap-6 px-4">
       <div className="text-center">
         <h1 className="mb-1 text-3xl sm:text-4xl font-extrabold text-white">💀 Hangman</h1>
-        <p className="text-sm text-gray-400">Guess the word before it&apos;s too late</p>
+        <p className="text-sm text-gray-400">
+          {cfg.emoji} {cfg.label} · {cfg.age}
+        </p>
       </div>
 
       {/* Category badge */}
@@ -83,10 +134,7 @@ export default function HangmanGame() {
           {/* Word display */}
           <div className="flex flex-wrap justify-center gap-2">
             {word.split("").map((letter, i) => (
-              <div
-                key={i}
-                className="flex flex-col items-center gap-1"
-              >
+              <div key={i} className="flex flex-col items-center gap-1">
                 <span className="text-xl sm:text-2xl font-bold text-white min-w-[1.5rem] text-center">
                   {guessed.has(letter) ? letter.toUpperCase() : " "}
                 </span>
@@ -133,12 +181,18 @@ export default function HangmanGame() {
       </div>
 
       {/* Actions */}
-      <div className="flex gap-3 mt-2">
+      <div className="flex flex-wrap justify-center gap-3 mt-2">
         <button
-          onClick={initGame}
+          onClick={() => initGame(difficulty)}
           className="rounded-xl bg-purple-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-purple-500 transition-colors"
         >
           New Word
+        </button>
+        <button
+          onClick={() => setStarted(false)}
+          className="rounded-xl border border-gray-600 bg-[#1a1a2e] px-6 py-2.5 text-sm font-semibold text-gray-300 hover:bg-gray-800 transition-colors"
+        >
+          Change Difficulty
         </button>
         <a
           href="/"
