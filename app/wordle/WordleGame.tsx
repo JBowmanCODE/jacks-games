@@ -162,12 +162,70 @@ export default function WordleGame() {
   // ── Difficulty picker ─────────────────────────────────────────────
   if (!started) {
     return (
-      <div className="flex flex-col items-center gap-8 px-4">
+      <div className="flex flex-col items-center gap-6 px-4 max-w-sm mx-auto w-full">
         <div className="text-center">
-          <h1 className="mb-2 text-3xl sm:text-4xl font-extrabold text-white">🟩 Wordle</h1>
-          <p className="text-gray-400 text-sm max-w-xs mx-auto">
-            Guess the hidden word. Green = right place. Yellow = wrong place. Grey = not in word.
-          </p>
+          <h1 className="mb-1 text-3xl sm:text-4xl font-extrabold text-white">🟩 Wordle</h1>
+          <p className="text-gray-400 text-sm">Guess the secret word!</p>
+        </div>
+
+        {/* How to play */}
+        <div className="w-full rounded-2xl border border-purple-800 bg-[#1a1a2e] p-5 space-y-4">
+          <h2 className="text-base font-extrabold text-purple-300 text-center">How to Play</h2>
+
+          <div className="space-y-2 text-sm text-gray-300">
+            <p>🕵️ There is a <strong className="text-white">secret word</strong> hidden on the screen.</p>
+            <p>⌨️ Type any word of the right length and press <strong className="text-white">ENTER</strong> to guess.</p>
+            <p>🎯 You get <strong className="text-white">6 guesses</strong> to find the secret word!</p>
+          </div>
+
+          {/* Colour guide */}
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">What the colours mean</p>
+
+            {/* Green example */}
+            <div className="flex items-center gap-3">
+              <div className="flex gap-1 shrink-0">
+                {["C","A","K","E"].map((l, i) => (
+                  <div key={i} className={`w-9 h-9 flex items-center justify-center rounded-lg font-extrabold text-white text-sm border-2 ${i === 0 ? "bg-green-700 border-green-600" : "bg-gray-700 border-gray-600"}`}>
+                    {l}
+                  </div>
+                ))}
+              </div>
+              <p className="text-sm text-gray-200">
+                <span className="font-bold text-green-400">Green</span> = right letter, right spot! 🎉
+              </p>
+            </div>
+
+            {/* Yellow example */}
+            <div className="flex items-center gap-3">
+              <div className="flex gap-1 shrink-0">
+                {["C","A","K","E"].map((l, i) => (
+                  <div key={i} className={`w-9 h-9 flex items-center justify-center rounded-lg font-extrabold text-white text-sm border-2 ${i === 2 ? "bg-yellow-600 border-yellow-500" : "bg-gray-700 border-gray-600"}`}>
+                    {l}
+                  </div>
+                ))}
+              </div>
+              <p className="text-sm text-gray-200">
+                <span className="font-bold text-yellow-400">Yellow</span> = right letter, wrong spot 🔄
+              </p>
+            </div>
+
+            {/* Grey example */}
+            <div className="flex items-center gap-3">
+              <div className="flex gap-1 shrink-0">
+                {["C","A","K","E"].map((l, i) => (
+                  <div key={i} className={`w-9 h-9 flex items-center justify-center rounded-lg font-extrabold text-white text-sm border-2 ${i === 3 ? "bg-gray-700 border-gray-600 text-gray-400" : "bg-gray-700 border-gray-600"}`}>
+                    {l}
+                  </div>
+                ))}
+              </div>
+              <p className="text-sm text-gray-200">
+                <span className="font-bold text-gray-400">Grey</span> = that letter isn&apos;t in the word ❌
+              </p>
+            </div>
+          </div>
+
+          <p className="text-xs text-gray-500 text-center">Use the on-screen keyboard or type on your keyboard!</p>
         </div>
         <div className="w-full max-w-sm space-y-3">
           {(["easy", "medium", "hard"] as Difficulty[]).map((d) => {
