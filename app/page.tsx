@@ -49,6 +49,14 @@ const games = [
     color: "from-teal-900 to-teal-700",
     border: "border-teal-800",
   },
+  {
+    href: "/spelling",
+    title: "Spelling Test",
+    description: "Enter your spelling words, listen to them read aloud and type your answers.",
+    emoji: "✏️",
+    color: "from-pink-900 to-pink-700",
+    border: "border-pink-800",
+  },
 ];
 
 const comingSoon = [
