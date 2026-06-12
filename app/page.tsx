@@ -65,6 +65,22 @@ const games = [
     color: "from-orange-900 to-orange-700",
     border: "border-orange-800",
   },
+  {
+    href: "/oceanbattle",
+    title: "Ocean Battle",
+    description: "Place your fleet and hunt down the enemy's ships before they sink yours!",
+    emoji: "⚓",
+    color: "from-cyan-900 to-cyan-700",
+    border: "border-cyan-800",
+  },
+  {
+    href: "/dropfour",
+    title: "Drop Four",
+    description: "Drop pieces to connect four in a row. Play vs a friend or challenge the bot!",
+    emoji: "🟢",
+    color: "from-emerald-900 to-emerald-700",
+    border: "border-emerald-800",
+  },
 ];
 
 const comingSoon = [
