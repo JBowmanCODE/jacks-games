@@ -57,6 +57,14 @@ const games = [
     color: "from-pink-900 to-pink-700",
     border: "border-pink-800",
   },
+  {
+    href: "/snakes",
+    title: "Snakes & Ladders",
+    description: "Classic board game — up to 4 players or play solo vs a bot. Watch out for snakes!",
+    emoji: "🎲",
+    color: "from-orange-900 to-orange-700",
+    border: "border-orange-800",
+  },
 ];
 
 const comingSoon = [
