@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 // ═══════════════════════════════════════════════════════════════════
 const GW = 960, GH = 560;
 const PR = 15;
+const CAM_ZOOM = 2.2; // how zoomed-in the camera is — higher = more "in the action"
 const GAME_SECS = 150;
 const PICKUP_RESPAWN = 14000;
 const RESPAWN_MS = 4500;
@@ -541,7 +542,7 @@ export default function PaintballGame() {
     const canvas=cv.current;if(!canvas) return;
     const ctx=canvas.getContext("2d");if(!ctx) return;
     const now=Date.now();
-    const ZOOM=1.5;
+    const ZOOM=CAM_ZOOM;
     // Camera target: live player position, else map centre
     const camEnt=ents.current.find(e=>e.isPlayer&&e.deadUntil===0);
     const rawCX=camEnt?camEnt.pos.x:GW/2, rawCY=camEnt?camEnt.pos.y:GH/2;
@@ -611,8 +612,8 @@ export default function PaintballGame() {
     ctx.fillStyle="rgba(0,0,0,0.82)";ctx.fillRect(mx-2,my-2,mw+4,mh+4);
     ctx.strokeStyle="#ffffff18";ctx.lineWidth=1;ctx.strokeRect(mx-2,my-2,mw+4,mh+4);
     // Camera viewport rect on minimap
-    const vw=(GW/1.5)*(mw/GW), vh=(GH/1.5)*(mh/GH);
-    const vcx=(camX-GW/(2*1.5))*(mw/GW)+mx, vcy=(camY-GH/(2*1.5))*(mh/GH)+my;
+    const vw=(GW/CAM_ZOOM)*(mw/GW), vh=(GH/CAM_ZOOM)*(mh/GH);
+    const vcx=(camX-GW/(2*CAM_ZOOM))*(mw/GW)+mx, vcy=(camY-GH/(2*CAM_ZOOM))*(mh/GH)+my;
     ctx.strokeStyle="#ffffff30";ctx.lineWidth=1;ctx.strokeRect(Math.max(mx,vcx),Math.max(my,vcy),Math.min(vw,mw),Math.min(vh,mh));
     for(const e of ents.current){
       if(e.deadUntil>0) continue;
@@ -642,7 +643,7 @@ export default function PaintballGame() {
     const ku=(e:KeyboardEvent)=>{keys.current[e.key.toLowerCase()]=false;};
     const mm=(e:MouseEvent)=>{
       const r=cv.current?.getBoundingClientRect();if(!r) return;
-      const ZOOM=1.5;
+      const ZOOM=CAM_ZOOM;
       const sx=(e.clientX-r.left)*(GW/r.width), sy=(e.clientY-r.top)*(GH/r.height);
       const camEnt=ents.current.find(en=>en.isPlayer&&en.deadUntil===0);
       const rawCX=camEnt?camEnt.pos.x:GW/2, rawCY=camEnt?camEnt.pos.y:GH/2;
@@ -654,13 +655,13 @@ export default function PaintballGame() {
     const mu=(e:MouseEvent)=>{if(e.button===0) mdown.current=false;};
     const ts=(e:TouchEvent)=>{e.preventDefault();const r=cv.current?.getBoundingClientRect();if(!r) return;for(const t of Array.from(e.changedTouches)){const gx=(t.clientX-r.left)*(GW/r.width);if(gx<GW/2) tlJ.current={id:t.identifier,sx:t.clientX,sy:t.clientY,dx:0,dy:0};else trJ.current={id:t.identifier,shooting:true};}};
     const tm=(e:TouchEvent)=>{e.preventDefault();const r=cv.current?.getBoundingClientRect();if(!r) return;for(const t of Array.from(e.changedTouches)){if(tlJ.current?.id===t.identifier){const dx=(t.clientX-tlJ.current.sx)/65,dy=(t.clientY-tlJ.current.sy)/65,l=Math.sqrt(dx*dx+dy*dy),n=l>1?1/l:1;tlJ.current={...tlJ.current,dx:dx*n,dy:dy*n};}if(trJ.current?.id===t.identifier){
-  const ZOOM=1.5;
+  const ZOOM2=CAM_ZOOM;
   const sx=(t.clientX-r.left)*(GW/r.width), sy=(t.clientY-r.top)*(GH/r.height);
   const camEnt=ents.current.find(en=>en.isPlayer&&en.deadUntil===0);
   const rawCX=camEnt?camEnt.pos.x:GW/2, rawCY=camEnt?camEnt.pos.y:GH/2;
-  const camX=Math.max(GW/(2*ZOOM),Math.min(GW-GW/(2*ZOOM),rawCX));
-  const camY=Math.max(GH/(2*ZOOM),Math.min(GH-GH/(2*ZOOM),rawCY));
-  mpos.current={x:(sx-GW/2)/ZOOM+camX, y:(sy-GH/2)/ZOOM+camY};
+  const camX=Math.max(GW/(2*ZOOM2),Math.min(GW-GW/(2*ZOOM2),rawCX));
+  const camY=Math.max(GH/(2*ZOOM2),Math.min(GH-GH/(2*ZOOM2),rawCY));
+  mpos.current={x:(sx-GW/2)/ZOOM2+camX, y:(sy-GH/2)/ZOOM2+camY};
 }}};
     const te=(e:TouchEvent)=>{for(const t of Array.from(e.changedTouches)){if(tlJ.current?.id===t.identifier) tlJ.current=null;if(trJ.current?.id===t.identifier){trJ.current=null;mdown.current=false;}}};
     window.addEventListener("keydown",kd);window.addEventListener("keyup",ku);
