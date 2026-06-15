@@ -81,6 +81,14 @@ const games = [
     color: "from-emerald-900 to-emerald-700",
     border: "border-emerald-800",
   },
+  {
+    href: "/paintball",
+    title: "Paintball",
+    description: "5v5 paintball! Capture zones, grab better weapons, throw paint and smoke grenades!",
+    emoji: "🎨",
+    color: "from-fuchsia-900 to-fuchsia-700",
+    border: "border-fuchsia-800",
+  },
 ];
 
 const comingSoon = [
