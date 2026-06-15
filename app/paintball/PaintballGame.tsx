@@ -49,15 +49,17 @@ interface Particle {id:number;pos:V2;vel:V2;r:number;color:string;alpha:number;l
 // ═══════════════════════════════════════════════════════════════════
 // MAP
 // ═══════════════════════════════════════════════════════════════════
+// Minimal cover — open arena feel, nowhere to hide for long
 const WALLS: Wall[] = [
   {x:0,y:0,w:GW,h:16},{x:0,y:GH-16,w:GW,h:16},{x:0,y:0,w:16,h:GH},{x:GW-16,y:0,w:16,h:GH},
-  {x:130,y:110,w:60,h:100},{x:130,y:350,w:60,h:100},
-  {x:270,y:190,w:28,h:180},
-  {x:350,y:70,w:260,h:36},{x:350,y:GH-106,w:260,h:36},
-  {x:365,y:195,w:50,h:55},{x:490,y:195,w:50,h:55},
-  {x:365,y:310,w:50,h:55},{x:490,y:310,w:50,h:55},
-  {x:GW-298,y:190,w:28,h:180},
-  {x:GW-190,y:110,w:60,h:100},{x:GW-190,y:350,w:60,h:100},
+  // Small symmetric cover boxes only
+  {x:230,y:155,w:65,h:40},                          // left-top cover
+  {x:230,y:GH-195,w:65,h:40},                       // left-bottom cover
+  {x:GW-295,y:155,w:65,h:40},                       // right-top cover
+  {x:GW-295,y:GH-195,w:65,h:40},                    // right-bottom cover
+  // Centre cross (small)
+  {x:GW/2-90,y:GH/2-18,w:180,h:36},                // horizontal bar
+  {x:GW/2-18,y:GH/2-70,w:36,h:140},                // vertical bar
 ];
 
 const ZONES: Zone[] = [
@@ -449,7 +451,13 @@ export default function PaintballGame() {
     const dt=lastT.current?Math.min((now-lastT.current)/16.67,3):1;
     lastT.current=now;
     tLeft.current-=dt/60;
-    if(tLeft.current<=0){tLeft.current=0;phase.current=bScr.current>rScr.current?"bluewon":rScr.current>bScr.current?"redwon":"draw";}
+    if(tLeft.current<=0&&phase.current==="playing"){
+      tLeft.current=0;
+      phase.current=bScr.current>rScr.current?"bluewon":rScr.current>bScr.current?"redwon":"draw";
+      // Force immediate HUD update so game-over banner appears instantly
+      const p2=ents.current.find(e=>e.isPlayer);
+      setHud({hp:p2?.deadUntil?0:(p2?.hp??0),ammo:p2?.ammo??0,wpn:p2?.wpn??"pistol",pg:p2?.pg??0,sg:p2?.sg??0,bScr:bScr.current,rScr:rScr.current,tLeft:0,phase:phase.current,feed:[...feed.current]});
+    }
     scrT.current+=dt/60;
     if(scrT.current>=2){scrT.current=0;for(const z of zns.current){if(z.owner==="blue") bScr.current++;else if(z.owner==="red") rScr.current++;}}
     for(const p of pkups.current) if(!p.avail&&now>=p.respawnAt) p.avail=true;
@@ -533,9 +541,19 @@ export default function PaintballGame() {
     const canvas=cv.current;if(!canvas) return;
     const ctx=canvas.getContext("2d");if(!ctx) return;
     const now=Date.now();
+    const ZOOM=1.5;
+    // Camera target: live player position, else map centre
+    const camEnt=ents.current.find(e=>e.isPlayer&&e.deadUntil===0);
+    const rawCX=camEnt?camEnt.pos.x:GW/2, rawCY=camEnt?camEnt.pos.y:GH/2;
+    // Clamp so camera never shows outside world
+    const camX=Math.max(GW/(2*ZOOM),Math.min(GW-GW/(2*ZOOM),rawCX));
+    const camY=Math.max(GH/(2*ZOOM),Math.min(GH-GH/(2*ZOOM),rawCY));
     ctx.save();
-    // Screen shake
+    // Screen shake (applied in screen space before world transform)
     if(now<shake.current.end){const f=(shake.current.end-now)/450,m=shake.current.mag*f;ctx.translate((Math.random()-.5)*m,(Math.random()-.5)*m);}
+    // Camera follow: world → screen
+    ctx.translate(GW/2-camX*ZOOM, GH/2-camY*ZOOM);
+    ctx.scale(ZOOM,ZOOM);
     // Floor
     drawFloor(ctx);
     // Paint splats
@@ -572,7 +590,7 @@ export default function PaintballGame() {
         ctx.save();ctx.globalAlpha=.22+(Math.sin(now/300)*.08);
         ctx.fillStyle=e.team==="blue"?"#3b82f6":"#ef4444";ctx.beginPath();ctx.arc(sp.x,sp.y,PR,0,Math.PI*2);ctx.fill();
         ctx.globalAlpha=1;
-        if(e.isPlayer){ctx.fillStyle="#fff";ctx.font="bold 10px 'Courier New'";ctx.textAlign="center";ctx.fillText(`${((e.deadUntil-now)/1000).toFixed(1)}s`,sp.x,sp.y+4);ctx.textAlign="left";}
+        if(e.isPlayer&&phase.current==="playing"){const secLeft=Math.max(0,(e.deadUntil-now)/1000);ctx.fillStyle="#fff";ctx.font="bold 10px 'Courier New'";ctx.textAlign="center";ctx.fillText(`${secLeft.toFixed(1)}s`,sp.x,sp.y+4);ctx.textAlign="left";}
         ctx.restore();
         continue;
       }
@@ -586,10 +604,16 @@ export default function PaintballGame() {
     ctx.fillStyle="#3b82f655";ctx.fillText("BLUE BASE",70,GH/2);
     ctx.fillStyle="#ef444455";ctx.fillText("RED BASE",GW-70,GH/2);
     ctx.textAlign="left";
-    // Minimap
+    // Restore world transform — everything below is screen-space
+    ctx.restore();
+    // Minimap (screen space)
     const mx=GW-86,my=GH-66,mw=72,mh=54;
-    ctx.fillStyle="rgba(0,0,0,0.75)";ctx.fillRect(mx-2,my-2,mw+4,mh+4);
-    ctx.strokeStyle="#ffffff15";ctx.lineWidth=1;ctx.strokeRect(mx-2,my-2,mw+4,mh+4);
+    ctx.fillStyle="rgba(0,0,0,0.82)";ctx.fillRect(mx-2,my-2,mw+4,mh+4);
+    ctx.strokeStyle="#ffffff18";ctx.lineWidth=1;ctx.strokeRect(mx-2,my-2,mw+4,mh+4);
+    // Camera viewport rect on minimap
+    const vw=(GW/1.5)*(mw/GW), vh=(GH/1.5)*(mh/GH);
+    const vcx=(camX-GW/(2*1.5))*(mw/GW)+mx, vcy=(camY-GH/(2*1.5))*(mh/GH)+my;
+    ctx.strokeStyle="#ffffff30";ctx.lineWidth=1;ctx.strokeRect(Math.max(mx,vcx),Math.max(my,vcy),Math.min(vw,mw),Math.min(vh,mh));
     for(const e of ents.current){
       if(e.deadUntil>0) continue;
       ctx.fillStyle=e.team==="blue"?"#60a5fa":"#f87171";
@@ -599,7 +623,6 @@ export default function PaintballGame() {
       ctx.strokeStyle=z.owner==="blue"?"#3b82f6":z.owner==="red"?"#ef4444":"#4b5563";
       ctx.lineWidth=1;ctx.beginPath();ctx.arc(mx+z.pos.x*(mw/GW),my+z.pos.y*(mh/GH),4,0,Math.PI*2);ctx.stroke();
     }
-    ctx.restore();
   },[]);
 
   const loop=useCallback(()=>{update();render();raf.current=requestAnimationFrame(loop);},[update,render]);
@@ -617,11 +640,28 @@ export default function PaintballGame() {
     initGame();raf.current=requestAnimationFrame(loop);
     const kd=(e:KeyboardEvent)=>{keys.current[e.key.toLowerCase()]=true;if(["arrowup","arrowdown","arrowleft","arrowright"," "].includes(e.key.toLowerCase())) e.preventDefault();};
     const ku=(e:KeyboardEvent)=>{keys.current[e.key.toLowerCase()]=false;};
-    const mm=(e:MouseEvent)=>{const r=cv.current?.getBoundingClientRect();if(!r) return;mpos.current={x:(e.clientX-r.left)*(GW/r.width),y:(e.clientY-r.top)*(GH/r.height)};};
+    const mm=(e:MouseEvent)=>{
+      const r=cv.current?.getBoundingClientRect();if(!r) return;
+      const ZOOM=1.5;
+      const sx=(e.clientX-r.left)*(GW/r.width), sy=(e.clientY-r.top)*(GH/r.height);
+      const camEnt=ents.current.find(en=>en.isPlayer&&en.deadUntil===0);
+      const rawCX=camEnt?camEnt.pos.x:GW/2, rawCY=camEnt?camEnt.pos.y:GH/2;
+      const camX=Math.max(GW/(2*ZOOM),Math.min(GW-GW/(2*ZOOM),rawCX));
+      const camY=Math.max(GH/(2*ZOOM),Math.min(GH-GH/(2*ZOOM),rawCY));
+      mpos.current={x:(sx-GW/2)/ZOOM+camX, y:(sy-GH/2)/ZOOM+camY};
+    };
     const md=(e:MouseEvent)=>{if(e.button===0) mdown.current=true;};
     const mu=(e:MouseEvent)=>{if(e.button===0) mdown.current=false;};
     const ts=(e:TouchEvent)=>{e.preventDefault();const r=cv.current?.getBoundingClientRect();if(!r) return;for(const t of Array.from(e.changedTouches)){const gx=(t.clientX-r.left)*(GW/r.width);if(gx<GW/2) tlJ.current={id:t.identifier,sx:t.clientX,sy:t.clientY,dx:0,dy:0};else trJ.current={id:t.identifier,shooting:true};}};
-    const tm=(e:TouchEvent)=>{e.preventDefault();const r=cv.current?.getBoundingClientRect();if(!r) return;for(const t of Array.from(e.changedTouches)){if(tlJ.current?.id===t.identifier){const dx=(t.clientX-tlJ.current.sx)/65,dy=(t.clientY-tlJ.current.sy)/65,l=Math.sqrt(dx*dx+dy*dy),n=l>1?1/l:1;tlJ.current={...tlJ.current,dx:dx*n,dy:dy*n};}if(trJ.current?.id===t.identifier){mpos.current={x:(t.clientX-r.left)*(GW/r.width),y:(t.clientY-r.top)*(GH/r.height)};}}};
+    const tm=(e:TouchEvent)=>{e.preventDefault();const r=cv.current?.getBoundingClientRect();if(!r) return;for(const t of Array.from(e.changedTouches)){if(tlJ.current?.id===t.identifier){const dx=(t.clientX-tlJ.current.sx)/65,dy=(t.clientY-tlJ.current.sy)/65,l=Math.sqrt(dx*dx+dy*dy),n=l>1?1/l:1;tlJ.current={...tlJ.current,dx:dx*n,dy:dy*n};}if(trJ.current?.id===t.identifier){
+  const ZOOM=1.5;
+  const sx=(t.clientX-r.left)*(GW/r.width), sy=(t.clientY-r.top)*(GH/r.height);
+  const camEnt=ents.current.find(en=>en.isPlayer&&en.deadUntil===0);
+  const rawCX=camEnt?camEnt.pos.x:GW/2, rawCY=camEnt?camEnt.pos.y:GH/2;
+  const camX=Math.max(GW/(2*ZOOM),Math.min(GW-GW/(2*ZOOM),rawCX));
+  const camY=Math.max(GH/(2*ZOOM),Math.min(GH-GH/(2*ZOOM),rawCY));
+  mpos.current={x:(sx-GW/2)/ZOOM+camX, y:(sy-GH/2)/ZOOM+camY};
+}}};
     const te=(e:TouchEvent)=>{for(const t of Array.from(e.changedTouches)){if(tlJ.current?.id===t.identifier) tlJ.current=null;if(trJ.current?.id===t.identifier){trJ.current=null;mdown.current=false;}}};
     window.addEventListener("keydown",kd);window.addEventListener("keyup",ku);
     const c=cv.current;
