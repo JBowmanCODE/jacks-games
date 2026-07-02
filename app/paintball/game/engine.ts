@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { createHumanoid, poseHumanoid, addBodyPaint, clearBodyPaint, Humanoid } from "./humanoid";
 import { buildWorld, createTrashCan, WorldData, MAT_Y, APRON_HALF, CAGE_HALF, CAGE_H, ARENA } from "./world";
-import { splatTexture } from "./textures";
+import { splatTexture, glowTexture, emojiTexture } from "./textures";
 
 // ---------- tuning ----------
 const PLAYER_R = 0.32;
@@ -12,15 +12,12 @@ const WALK = 4.3;
 const SPRINT = 6.6;
 const BOT_SPEED = 3.7;
 const CLIMB_SPEED = 2.4;
-const FIRE_INTERVAL = 0.16;
-const BALL_SPEED = 40;
-const BALL_GRAV = 8;
-const HIT_DMG = 34;
 const CAN_DMG = 100;
 const RESPAWN_T = 3.5;
 const MATCH_TIME = 300;
 const WIN_SCORE = 25;
 const STEP_UP = 0.55;
+const NADE_CD = 60;
 
 const RED = 0xd93434;
 const BLUE = 0x2f6fd9;
@@ -30,8 +27,65 @@ const PAINT_BLUE = [0x22aaff, 0x3355ff, 0x00ddcc];
 const RED_NAMES = ["Jack", "Rex", "Maya", "Duke", "Zoe"];
 const BLUE_NAMES = ["Vince", "Kira", "Bruno", "Tess", "Axel"];
 
+// ---------- weapons ----------
+export interface WeaponDef {
+  key: string;
+  name: string;
+  icon: string;
+  interval: number;
+  speed: number;
+  dmg: number;
+  pellets: number;
+  spread: number;
+  ballR: number;
+  grav: number;
+  explosive?: number; // blast radius
+  bounces?: number;
+  homing?: boolean;
+  rainbow?: boolean;
+}
+
+const STARTER: WeaponDef = {
+  key: "marker", name: "Splat Marker", icon: "🔫",
+  interval: 0.16, speed: 42, dmg: 34, pellets: 1, spread: 0.012, ballR: 0.07, grav: 8,
+};
+
+const WEAPONS: WeaponDef[] = [
+  { key: "smg", name: "Rapid Marker", icon: "💨", interval: 0.07, speed: 46, dmg: 16, pellets: 1, spread: 0.035, ballR: 0.06, grav: 8 },
+  { key: "shotgun", name: "Double-Barrel Splatter", icon: "🎇", interval: 0.8, speed: 38, dmg: 20, pellets: 6, spread: 0.09, ballR: 0.06, grav: 9 },
+  { key: "sniper", name: "Sniper Splat", icon: "🎯", interval: 0.95, speed: 75, dmg: 100, pellets: 1, spread: 0.002, ballR: 0.07, grav: 3 },
+  { key: "minigun", name: "Paint Minigun", icon: "🌀", interval: 0.045, speed: 44, dmg: 12, pellets: 1, spread: 0.05, ballR: 0.055, grav: 8 },
+  { key: "burst", name: "Triple Threat", icon: "🔱", interval: 0.34, speed: 44, dmg: 25, pellets: 3, spread: 0.02, ballR: 0.065, grav: 8 },
+  { key: "bazooka", name: "Paint Bazooka", icon: "🚀", interval: 1.15, speed: 27, dmg: 80, pellets: 1, spread: 0.01, ballR: 0.16, grav: 13, explosive: 3.4 },
+  { key: "bouncer", name: "Bouncy Blaster", icon: "🏀", interval: 0.3, speed: 36, dmg: 30, pellets: 1, spread: 0.02, ballR: 0.08, grav: 11, bounces: 2 },
+  { key: "hornet", name: "Homing Hornet", icon: "🐝", interval: 0.42, speed: 32, dmg: 28, pellets: 1, spread: 0.02, ballR: 0.08, grav: 2, homing: true },
+  { key: "rainbow", name: "Rainbow Repeater", icon: "🌈", interval: 0.09, speed: 46, dmg: 20, pellets: 1, spread: 0.025, ballR: 0.065, grav: 8, rainbow: true },
+  { key: "goo", name: "Golden Goo Cannon", icon: "⭐", interval: 0.5, speed: 50, dmg: 55, pellets: 1, spread: 0.008, ballR: 0.1, grav: 6 },
+];
+
+// ---------- skills ----------
+type SkillKey = "speed" | "big" | "small" | "invincible" | "jump" | "rapid" | "shield";
+
+interface SkillDef {
+  key: SkillKey;
+  name: string;
+  icon: string;
+  dur: number; // seconds (0 = instant)
+}
+
+const SKILLS: SkillDef[] = [
+  { key: "speed", name: "Speed Boost", icon: "⚡", dur: 30 },
+  { key: "big", name: "GIANT Mode", icon: "🦍", dur: 30 },
+  { key: "small", name: "Tiny Mode", icon: "🐭", dur: 30 },
+  { key: "invincible", name: "Invincibility", icon: "🌟", dur: 10 },
+  { key: "jump", name: "Moon Boots", icon: "🐰", dur: 30 },
+  { key: "rapid", name: "Rapid Fire", icon: "🔥", dur: 20 },
+  { key: "shield", name: "Paint Shield", icon: "🛡️", dur: 0 },
+];
+
 export interface HudState {
   hp: number;
+  shield: number;
   red: number;
   blue: number;
   time: number;
@@ -40,6 +94,11 @@ export interface HudState {
   dead: boolean;
   respawnIn: number;
   onRoof: boolean;
+  weapon: string;
+  weaponIcon: string;
+  gPaint: number; // seconds until ready, 0 = ready
+  gSmoke: number;
+  fx: { icon: string; name: string; sec: number }[];
 }
 
 export interface EngineCallbacks {
@@ -58,6 +117,7 @@ interface Fighter {
   yaw: number;
   pitch: number;
   hp: number;
+  shield: number;
   alive: boolean;
   deadT: number;
   walkPhase: number;
@@ -67,6 +127,10 @@ interface Fighter {
   grounded: boolean;
   fireCd: number;
   aiming: boolean;
+  weapon: WeaponDef;
+  fx: Map<SkillKey, number>;
+  scaleCur: number;
+  glow: THREE.Mesh | null;
   // bot brain
   wp: THREE.Vector3 | null;
   path: THREE.Vector3[];
@@ -85,6 +149,11 @@ interface Ball {
   owner: Fighter;
   color: number;
   life: number;
+  dmg: number;
+  grav: number;
+  explosive?: number;
+  bounces: number;
+  homing: boolean;
 }
 
 interface Can {
@@ -97,15 +166,37 @@ interface Can {
   spin: number;
 }
 
-interface Decal {
+interface Decal { mesh: THREE.Mesh; life: number }
+interface Burst { points: THREE.Points; vels: THREE.Vector3[]; life: number }
+interface Flash { sprite: THREE.Sprite; life: number }
+
+interface Nade {
+  kind: "paint" | "smoke";
+  pos: THREE.Vector3;
+  vel: THREE.Vector3;
   mesh: THREE.Mesh;
-  life: number;
+  fuse: number;
+  owner: Fighter;
 }
 
-interface Burst {
-  points: THREE.Points;
-  vels: THREE.Vector3[];
+interface Smoke {
+  group: THREE.Group;
+  pos: THREE.Vector3;
   life: number;
+  maxLife: number;
+  radius: number;
+}
+
+interface Pickup {
+  kind: "weapon" | "skill";
+  weapon?: WeaponDef;
+  skill?: SkillDef;
+  group: THREE.Group;
+  icon: THREE.Sprite;
+  pos: THREE.Vector3;
+  active: boolean;
+  respawnT: number;
+  bobT: number;
 }
 
 // ---------- tiny synth ----------
@@ -128,7 +219,7 @@ class Sfx {
   }
   private noise(dur: number): AudioBufferSourceNode {
     const ctx = this.ctx!;
-    const buf = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate);
+    const buf = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * dur)), ctx.sampleRate);
     const d = buf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     const src = ctx.createBufferSource();
@@ -140,11 +231,18 @@ class Sfx {
     const ctx = this.ctx;
     const o = ctx.createOscillator();
     o.type = "triangle";
-    o.frequency.setValueAtTime(520, ctx.currentTime);
-    o.frequency.exponentialRampToValueAtTime(160, ctx.currentTime + 0.09);
-    o.connect(this.env(0.14, 0.09));
+    o.frequency.setValueAtTime(560, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(170, ctx.currentTime + 0.09);
+    o.connect(this.env(0.18, 0.09));
     o.start();
     o.stop(ctx.currentTime + 0.1);
+    const n = this.noise(0.05);
+    const f = ctx.createBiquadFilter();
+    f.type = "highpass";
+    f.frequency.value = 2000;
+    n.connect(f);
+    f.connect(this.env(0.06, 0.05));
+    n.start();
   }
   splat() {
     if (!this.ctx) return;
@@ -192,6 +290,52 @@ class Sfx {
     f.connect(this.env(0.16, 0.3));
     n.start();
   }
+  boom() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const o = ctx.createOscillator();
+    o.type = "sine";
+    o.frequency.setValueAtTime(160, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(35, ctx.currentTime + 0.5);
+    o.connect(this.env(0.4, 0.5));
+    o.start();
+    o.stop(ctx.currentTime + 0.55);
+    const n = this.noise(0.4);
+    const f = ctx.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.value = 500;
+    n.connect(f);
+    f.connect(this.env(0.3, 0.4));
+    n.start();
+  }
+  hiss() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const n = this.noise(0.8);
+    const f = ctx.createBiquadFilter();
+    f.type = "bandpass";
+    f.frequency.value = 3500;
+    n.connect(f);
+    f.connect(this.env(0.12, 0.8));
+    n.start();
+  }
+  pickup() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    [440, 660, 880].forEach((fq, i) => {
+      const o = ctx.createOscillator();
+      o.type = "triangle";
+      o.frequency.value = fq;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, ctx.currentTime + i * 0.06);
+      g.gain.linearRampToValueAtTime(0.12, ctx.currentTime + i * 0.06 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.06 + 0.18);
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.start(ctx.currentTime + i * 0.06);
+      o.stop(ctx.currentTime + i * 0.06 + 0.2);
+    });
+  }
   jingle(win: boolean) {
     if (!this.ctx) return;
     const ctx = this.ctx;
@@ -226,6 +370,10 @@ export class PaintballEngine {
   private cans: Can[] = [];
   private decals: Decal[] = [];
   private bursts: Burst[] = [];
+  private flashes: Flash[] = [];
+  private nades: Nade[] = [];
+  private smokes: Smoke[] = [];
+  private pickups: Pickup[] = [];
 
   private keys = new Set<string>();
   private mouseDown = false;
@@ -235,11 +383,13 @@ export class PaintballEngine {
   private over = false;
   private timeLeft = MATCH_TIME;
   private score = { red: 0, blue: 0 };
+  private nadeCd = { paint: 0, smoke: 0 };
   private hudT = 0;
   private shake = 0;
   private prompt = "";
   private splatTex = splatTexture();
-  private ballGeo = new THREE.SphereGeometry(0.05, 8, 6);
+  private glowTex = glowTexture();
+  private ballGeo = new THREE.SphereGeometry(1, 10, 8); // unit sphere, scaled per ball
   private ballMats = new Map<number, THREE.MeshBasicMaterial>();
   private disposed = false;
 
@@ -256,6 +406,7 @@ export class PaintballEngine {
     this.world = buildWorld(this.scene);
     this.spawnTeams();
     this.spawnCans();
+    this.spawnPickups();
     this.bindInput();
     this.renderer.render(this.scene, this.camera);
   }
@@ -284,9 +435,10 @@ export class PaintballEngine {
     return {
       rig, team, name,
       pos, vel: new THREE.Vector3(),
-      yaw, pitch: 0, hp: 100, alive: true, deadT: 0,
+      yaw, pitch: 0, hp: 100, shield: 0, alive: true, deadT: 0,
       walkPhase: 0, speed01: 0, isPlayer,
       climbing: false, grounded: true, fireCd: 0, aiming: isPlayer,
+      weapon: STARTER, fx: new Map(), scaleCur: 1, glow: null,
       wp: null, path: [], thinkT: Math.random() * 0.3, strafe: 1,
       target: null, stuckT: 0, lastPos: pos.clone(), burst: 0,
     };
@@ -301,11 +453,76 @@ export class PaintballEngine {
     }
   }
 
+  private pickupSpots(): { kind: "weapon" | "skill"; pos: THREE.Vector3 }[] {
+    const w = (x: number, y: number, z: number) => ({ kind: "weapon" as const, pos: new THREE.Vector3(x, y, z) });
+    const s = (x: number, y: number, z: number) => ({ kind: "skill" as const, pos: new THREE.Vector3(x, y, z) });
+    return [
+      // weapons: ring centre, cage roof, clearing ring, mid-jungle, near bases
+      w(0, MAT_Y, 0),
+      w(2.4, CAGE_H + 0.04, -2.4),
+      w(10, 0, 10), w(-10, 0, -10), w(-12, 0, 12), w(12, 0, -12),
+      w(24, 0, 4), w(-24, 0, -4),
+      w(38, 0, 14), w(-38, 0, -14),
+      // skills
+      s(0, 0, 16), s(0, 0, -16), s(18, 0, 18), s(-18, 0, -18),
+      s(30, 0, -22), s(-30, 0, 22), s(-1.8, CAGE_H + 0.04, 1.8),
+    ];
+  }
+
+  private spawnPickups() {
+    for (const spot of this.pickupSpots()) {
+      const group = new THREE.Group();
+      const icon = new THREE.Sprite(new THREE.SpriteMaterial({ map: null, transparent: true, depthWrite: false }));
+      icon.scale.set(0.85, 0.85, 1);
+      icon.position.y = 1.15;
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, transparent: true, depthWrite: false, opacity: 0.8 }));
+      glow.scale.set(1.7, 1.7, 1);
+      glow.position.y = 0.55;
+      group.add(glow);
+      const base = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.42, 0.5, 0.12, 12),
+        new THREE.MeshStandardMaterial({ color: 0x222831, roughness: 0.4, metalness: 0.6 })
+      );
+      base.position.y = 0.06;
+      group.add(base);
+      group.add(icon);
+      group.position.copy(spot.pos);
+      this.scene.add(group);
+      const p: Pickup = {
+        kind: spot.kind,
+        group, icon, pos: spot.pos.clone(),
+        active: false, respawnT: 0.01, bobT: Math.random() * 6,
+      };
+      this.pickups.push(p);
+    }
+  }
+
+  private rollPickup(p: Pickup) {
+    const mat = p.icon.material as THREE.SpriteMaterial;
+    mat.map?.dispose();
+    if (p.kind === "weapon") {
+      p.weapon = WEAPONS[Math.floor(Math.random() * WEAPONS.length)];
+      mat.map = emojiTexture(p.weapon.icon);
+    } else {
+      p.skill = SKILLS[Math.floor(Math.random() * SKILLS.length)];
+      mat.map = emojiTexture(p.skill.icon);
+    }
+    mat.needsUpdate = true;
+    const glowMat = (p.group.children[0] as THREE.Sprite).material as THREE.SpriteMaterial;
+    glowMat.color.set(p.kind === "weapon" ? 0xffc14d : 0x7de8ff);
+    p.active = true;
+    p.group.visible = true;
+  }
+
   // ================= input =================
   private onKeyDown = (e: KeyboardEvent) => {
-    if (["KeyW", "KeyA", "KeyS", "KeyD", "Space", "ShiftLeft", "ShiftRight", "KeyE"].includes(e.code)) e.preventDefault();
+    if (["KeyW", "KeyA", "KeyS", "KeyD", "Space", "ShiftLeft", "ShiftRight", "KeyE", "KeyG", "KeyH"].includes(e.code))
+      e.preventDefault();
     this.keys.add(e.code);
-    if (e.code === "KeyE" && !e.repeat) this.interact();
+    if (e.repeat) return;
+    if (e.code === "KeyE") this.interact();
+    if (e.code === "KeyG") this.throwNade("paint");
+    if (e.code === "KeyH") this.throwNade("smoke");
   };
   private onKeyUp = (e: KeyboardEvent) => this.keys.delete(e.code);
   private onMouseMove = (e: MouseEvent) => {
@@ -349,16 +566,21 @@ export class PaintballEngine {
     this.over = false;
     this.timeLeft = MATCH_TIME;
     this.score = { red: 0, blue: 0 };
-    for (let i = 0; i < this.fighters.length; i++) {
-      const f = this.fighters[i];
+    this.nadeCd = { paint: 0, smoke: 0 };
+    for (const f of this.fighters) {
+      f.weapon = STARTER;
+      f.fx.clear();
+      f.shield = 0;
       this.respawn(f);
-      f.hp = 100;
-      f.alive = true;
     }
     for (const d of this.decals) this.scene.remove(d.mesh);
     this.decals = [];
     for (const b of this.balls) this.scene.remove(b.mesh);
     this.balls = [];
+    for (const n of this.nades) this.scene.remove(n.mesh);
+    this.nades = [];
+    for (const s of this.smokes) this.scene.remove(s.group);
+    this.smokes = [];
     this.cans.forEach((c, i) => {
       c.held = null;
       c.vel.set(0, 0, 0);
@@ -366,6 +588,11 @@ export class PaintballEngine {
       c.group.position.copy(c.pos);
       c.group.rotation.set(0, 0, 0);
     });
+    for (const p of this.pickups) {
+      p.active = false;
+      p.group.visible = false;
+      p.respawnT = 0.01;
+    }
   }
 
   /** Debug/testing hook: place the player somewhere specific. */
@@ -374,6 +601,19 @@ export class PaintballEngine {
     p.pos.set(x, this.world.floorHeightAt(x, z, 0), z);
     p.vel.set(0, 0, 0);
     if (yaw !== undefined) p.yaw = yaw;
+  }
+
+  /** Debug/testing hook. */
+  debugInfo() {
+    return {
+      balls: this.balls.length,
+      decals: this.decals.length,
+      pos: this.player.pos.toArray().map((n) => Math.round(n * 10) / 10),
+      weapon: this.player.weapon.name,
+      score: { ...this.score },
+      fx: [...this.player.fx.keys()],
+      pickupsActive: this.pickups.filter((p) => p.active).length,
+    };
   }
 
   resize(w: number, h: number) {
@@ -404,7 +644,6 @@ export class PaintballEngine {
     }
     const held = this.cans.find((c) => c.held === p);
     if (held) {
-      // drop gently
       held.held = null;
       held.vel.set(0, 1, 0);
       held.thrower = p;
@@ -450,14 +689,104 @@ export class PaintballEngine {
     can.held = null;
     can.thrower = f;
     can.graceT = 0.45;
-    const dir = new THREE.Vector3(
+    const dir = this.aimVector(f);
+    can.vel.copy(dir).multiplyScalar(13).add(new THREE.Vector3(0, 4.2, 0));
+    can.spin = 6 + Math.random() * 4;
+    this.sfx.whoosh();
+  }
+
+  private aimVector(f: Fighter): THREE.Vector3 {
+    return new THREE.Vector3(
       Math.cos(f.pitch) * Math.sin(f.yaw),
       Math.sin(f.pitch),
       Math.cos(f.pitch) * Math.cos(f.yaw)
     );
-    can.vel.copy(dir).multiplyScalar(13).add(new THREE.Vector3(0, 4.2, 0));
-    can.spin = 6 + Math.random() * 4;
+  }
+
+  // ================= grenades =================
+  private throwNade(kind: "paint" | "smoke") {
+    if (!this.running || this.over) return;
+    const p = this.player;
+    if (!p.alive || p.climbing) return;
+    if (this.nadeCd[kind] > 0) return;
+    this.nadeCd[kind] = NADE_CD;
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.13, 10, 8),
+      new THREE.MeshStandardMaterial({
+        color: kind === "paint" ? 0xff3388 : 0x9aa4ac,
+        roughness: 0.4,
+        metalness: 0.3,
+      })
+    );
+    const origin = new THREE.Vector3(p.pos.x, p.pos.y + 1.5, p.pos.z);
+    mesh.position.copy(origin);
+    mesh.castShadow = true;
+    this.scene.add(mesh);
+    const dir = this.aimVector(p);
+    this.nades.push({
+      kind,
+      pos: origin.clone(),
+      vel: dir.multiplyScalar(15).add(new THREE.Vector3(0, 4.5, 0)),
+      mesh, fuse: 2.2, owner: p,
+    });
     this.sfx.whoosh();
+  }
+
+  private detonatePaint(pos: THREE.Vector3, owner: Fighter) {
+    this.sfx.boom();
+    this.shake = Math.max(this.shake, 0.5);
+    // paint everywhere
+    for (let i = 0; i < 7; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const d = Math.random() * 3;
+      const px = pos.x + Math.cos(ang) * d;
+      const pz = pos.z + Math.sin(ang) * d;
+      const fh = this.world.floorHeightAt(px, pz, pos.y);
+      this.addDecal(new THREE.Vector3(px, fh, pz), new THREE.Vector3(0, 1, 0), this.paintColor(owner.team));
+    }
+    for (let i = 0; i < 4; i++) {
+      this.addBurst(pos, new THREE.Vector3((Math.random() - 0.5) * 2, 1, (Math.random() - 0.5) * 2).normalize(), this.paintColor(owner.team));
+    }
+    // AoE damage to enemies
+    for (const f of this.fighters) {
+      if (!f.alive || f.team === owner.team) continue;
+      const d = Math.hypot(f.pos.x - pos.x, (f.pos.y + 1) - pos.y, f.pos.z - pos.z);
+      if (d < 4.5) {
+        const dmg = Math.round(85 * (1 - (d / 4.5) * 0.55));
+        this.damage(f, owner, dmg, new THREE.Vector3(f.pos.x, f.pos.y + 1.1, f.pos.z), false);
+      }
+    }
+  }
+
+  private startSmoke(pos: THREE.Vector3) {
+    this.sfx.hiss();
+    const group = new THREE.Group();
+    for (let i = 0; i < 11; i++) {
+      const puff = new THREE.Mesh(
+        new THREE.SphereGeometry(0.9 + Math.random() * 1.1, 8, 6),
+        new THREE.MeshLambertMaterial({ color: 0xc8cdd2, transparent: true, opacity: 0.55 })
+      );
+      puff.position.set((Math.random() - 0.5) * 4, 0.5 + Math.random() * 2.2, (Math.random() - 0.5) * 4);
+      group.add(puff);
+    }
+    group.position.copy(pos);
+    group.scale.setScalar(0.2);
+    this.scene.add(group);
+    this.smokes.push({ group, pos: pos.clone(), life: 14, maxLife: 14, radius: 3.6 });
+  }
+
+  private losBlockedSmoky(ax: number, az: number, bx: number, bz: number): boolean {
+    if (this.world.losBlocked(ax, az, bx, bz)) return true;
+    for (const s of this.smokes) {
+      const dx = bx - ax;
+      const dz = bz - az;
+      const lenSq = dx * dx + dz * dz || 1;
+      const t = THREE.MathUtils.clamp(((s.pos.x - ax) * dx + (s.pos.z - az) * dz) / lenSq, 0, 1);
+      const px = ax + dx * t;
+      const pz = az + dz * t;
+      if ((px - s.pos.x) ** 2 + (pz - s.pos.z) ** 2 < s.radius * s.radius) return true;
+    }
+    return false;
   }
 
   // ================= combat =================
@@ -466,40 +795,63 @@ export class PaintballEngine {
     return list[Math.floor(Math.random() * list.length)];
   }
 
-  private fire(f: Fighter, dir: THREE.Vector3) {
-    const color = this.paintColor(f.team);
+  private ballMat(color: number): THREE.MeshBasicMaterial {
     let mat = this.ballMats.get(color);
     if (!mat) {
       mat = new THREE.MeshBasicMaterial({ color });
       this.ballMats.set(color, mat);
     }
-    const mesh = new THREE.Mesh(this.ballGeo, mat);
+    return mat;
+  }
+
+  private fire(f: Fighter, dir: THREE.Vector3) {
+    const w = f.weapon;
     const origin = new THREE.Vector3();
     f.rig.muzzle.getWorldPosition(origin);
-    mesh.position.copy(origin);
-    this.scene.add(mesh);
-    this.balls.push({
-      pos: origin.clone(),
-      vel: dir.clone().normalize().multiplyScalar(BALL_SPEED),
-      mesh, owner: f, color, life: 2.6,
-    });
-    f.fireCd = f.isPlayer ? FIRE_INTERVAL : 0.32 + Math.random() * 0.2;
+    for (let i = 0; i < w.pellets; i++) {
+      const color = w.rainbow
+        ? new THREE.Color().setHSL(Math.random(), 1, 0.55).getHex()
+        : w.key === "goo"
+          ? 0xffcc22
+          : this.paintColor(f.team);
+      const mesh = new THREE.Mesh(this.ballGeo, this.ballMat(color));
+      mesh.scale.setScalar(w.ballR);
+      mesh.position.copy(origin);
+      this.scene.add(mesh);
+      const d = dir.clone();
+      d.x += (Math.random() - 0.5) * 2 * w.spread;
+      d.y += (Math.random() - 0.5) * 2 * w.spread;
+      d.z += (Math.random() - 0.5) * 2 * w.spread;
+      this.balls.push({
+        pos: origin.clone(),
+        vel: d.normalize().multiplyScalar(w.speed),
+        mesh, owner: f, color, life: 3,
+        dmg: w.dmg, grav: w.grav,
+        explosive: w.explosive,
+        bounces: w.bounces ?? 0,
+        homing: !!w.homing,
+      });
+    }
+    // muzzle flash
+    const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: 0xfff0a8, transparent: true, depthWrite: false }));
+    flash.position.copy(origin);
+    flash.scale.setScalar(0.5 + Math.random() * 0.2);
+    this.scene.add(flash);
+    this.flashes.push({ sprite: flash, life: 0.06 });
+
+    const rapid = f.fx.has("rapid") ? 0.5 : 1;
+    f.fireCd = f.isPlayer ? w.interval * rapid : Math.max(w.interval * 1.5, 0.12);
     this.sfx.shoot();
   }
 
   private playerAimDir(): THREE.Vector3 {
     const p = this.player;
-    const dir = new THREE.Vector3(
-      Math.cos(p.pitch) * Math.sin(p.yaw),
-      Math.sin(p.pitch),
-      Math.cos(p.pitch) * Math.cos(p.yaw)
-    );
-    // converge toward the crosshair point 40m out
+    // converge toward the crosshair point 42m out
     const camTarget = this.camera.position.clone().add(this.cameraDir().multiplyScalar(42));
     const origin = new THREE.Vector3();
     p.rig.muzzle.getWorldPosition(origin);
-    const d = camTarget.sub(origin).normalize();
-    return d.lengthSq() > 0 ? d : dir;
+    const d = camTarget.sub(origin);
+    return d.lengthSq() > 0 ? d.normalize() : this.aimVector(p);
   }
 
   private cameraDir(): THREE.Vector3 {
@@ -510,6 +862,16 @@ export class PaintballEngine {
 
   private damage(victim: Fighter, attacker: Fighter, dmg: number, hitWorld: THREE.Vector3, byCan: boolean) {
     if (!victim.alive || this.over) return;
+    if (victim.fx.has("invincible")) {
+      this.addBurst(hitWorld, new THREE.Vector3(0, 1, 0), 0xffe066);
+      return;
+    }
+    // overshield soaks first
+    if (victim.shield > 0) {
+      const soak = Math.min(victim.shield, dmg);
+      victim.shield -= soak;
+      dmg -= soak;
+    }
     victim.hp -= dmg;
     const local = victim.rig.torso.worldToLocal(hitWorld.clone());
     addBodyPaint(victim.rig, this.paintColor(attacker.team), local);
@@ -565,9 +927,89 @@ export class PaintballEngine {
     f.target = null;
     f.wp = null;
     f.path = [];
+    f.fx.clear();
+    f.shield = 0;
     f.rig.group.rotation.set(0, f.yaw, 0);
     f.rig.group.position.copy(f.pos);
     clearBodyPaint(f.rig);
+  }
+
+  // ================= pickups & skills =================
+  private applySkill(f: Fighter, skill: SkillDef) {
+    if (skill.key === "shield") {
+      f.shield = 100;
+    } else {
+      f.fx.set(skill.key, skill.dur);
+      // big and small are mutually exclusive
+      if (skill.key === "big") f.fx.delete("small");
+      if (skill.key === "small") f.fx.delete("big");
+    }
+    if (f.isPlayer) this.cb.onKill(`You grabbed ${skill.icon} ${skill.name}!`, false);
+    this.sfx.pickup();
+  }
+
+  private updatePickups(dt: number) {
+    for (const p of this.pickups) {
+      if (!p.active) {
+        p.respawnT -= dt;
+        if (p.respawnT <= 0) this.rollPickup(p);
+        continue;
+      }
+      p.bobT += dt;
+      p.icon.position.y = 1.15 + Math.sin(p.bobT * 2.2) * 0.12;
+      p.group.rotation.y += dt * 1.5;
+      for (const f of this.fighters) {
+        if (!f.alive) continue;
+        if (p.kind === "skill" && !f.isPlayer) continue; // skills are for the player
+        const d = Math.hypot(f.pos.x - p.pos.x, f.pos.z - p.pos.z);
+        if (d < 1.0 && Math.abs(f.pos.y - p.pos.y) < 1.6) {
+          if (p.kind === "weapon" && p.weapon) {
+            f.weapon = p.weapon;
+            if (f.isPlayer) this.cb.onKill(`You found the ${p.weapon.icon} ${p.weapon.name}!`, false);
+            this.sfx.pickup();
+          } else if (p.skill) {
+            this.applySkill(f, p.skill);
+          }
+          p.active = false;
+          p.group.visible = false;
+          p.respawnT = 22 + Math.random() * 10;
+          break;
+        }
+      }
+    }
+  }
+
+  private updateEffects(f: Fighter, dt: number) {
+    for (const [k, t] of f.fx) {
+      const nt = t - dt;
+      if (nt <= 0) f.fx.delete(k);
+      else f.fx.set(k, nt);
+    }
+    const targetScale = f.fx.has("big") ? 1.45 : f.fx.has("small") ? 0.62 : 1;
+    f.scaleCur += (targetScale - f.scaleCur) * Math.min(1, dt * 6);
+    f.rig.group.scale.setScalar(f.scaleCur);
+    // invincibility glow
+    if (f.fx.has("invincible")) {
+      if (!f.glow) {
+        f.glow = new THREE.Mesh(
+          new THREE.SphereGeometry(0.85, 12, 10),
+          new THREE.MeshBasicMaterial({ color: 0xffdf5e, transparent: true, opacity: 0.22, depthWrite: false })
+        );
+        f.glow.scale.set(1, 1.4, 1);
+        f.glow.position.y = 1.05;
+        f.rig.group.add(f.glow);
+      }
+      (f.glow.material as THREE.MeshBasicMaterial).opacity = 0.16 + Math.sin(performance.now() * 0.01) * 0.08;
+    } else if (f.glow) {
+      this.disposeMesh(f.glow);
+      f.rig.group.remove(f.glow);
+      f.glow = null;
+    }
+  }
+
+  private disposeMesh(m: THREE.Mesh) {
+    m.geometry.dispose();
+    (m.material as THREE.Material).dispose();
   }
 
   // ================= splats & particles =================
@@ -592,8 +1034,7 @@ export class PaintballEngine {
     if (this.decals.length > 90) {
       const old = this.decals.shift()!;
       this.scene.remove(old.mesh);
-      old.mesh.geometry.dispose();
-      (old.mesh.material as THREE.Material).dispose();
+      this.disposeMesh(old.mesh);
     }
   }
 
@@ -631,7 +1072,6 @@ export class PaintballEngine {
   /** Push a point out of walls/cylinders. Returns new xz. */
   private resolveXZ(x: number, z: number, feetY: number, radius: number, headY: number): [number, number] {
     for (const c of this.world.cylinders) {
-      // trees don't block you when you're up on the roof level above them? trunks are tall — keep blocking
       const dx = x - c.x;
       const dz = z - c.z;
       const d = Math.hypot(dx, dz);
@@ -676,10 +1116,8 @@ export class PaintballEngine {
     let nx = f.pos.x + wishX * speed * dt;
     let nz = f.pos.z + wishZ * speed * dt;
     [nx, nz] = this.resolveXZ(nx, nz, f.pos.y, PLAYER_R, f.pos.y + BODY_H);
-    // ledge rule: can't walk up more than STEP_UP
     const fh = this.world.floorHeightAt(nx, nz, f.pos.y);
     if (fh - f.pos.y > STEP_UP) {
-      // try sliding on each axis
       let sx = f.pos.x + wishX * speed * dt;
       const fhX = this.world.floorHeightAt(sx, f.pos.z, f.pos.y);
       if (fhX - f.pos.y <= STEP_UP) {
@@ -697,7 +1135,6 @@ export class PaintballEngine {
       f.pos.x = nx;
       f.pos.z = nz;
     }
-    // gravity + floor
     f.vel.y -= GRAV * dt;
     f.pos.y += f.vel.y * dt;
     const floor = this.world.floorHeightAt(f.pos.x, f.pos.z, f.pos.y);
@@ -723,13 +1160,12 @@ export class PaintballEngine {
     if (f.thinkT > 0) return;
     f.thinkT = 0.22 + Math.random() * 0.12;
 
-    // acquire target
     let best: Fighter | null = null;
     let bd = 46;
     for (const e of this.fighters) {
       if (e.team === f.team || !e.alive) continue;
       const d = f.pos.distanceTo(e.pos);
-      if (d < bd && !this.world.losBlocked(f.pos.x, f.pos.z, e.pos.x, e.pos.z)) {
+      if (d < bd && !this.losBlockedSmoky(f.pos.x, f.pos.z, e.pos.x, e.pos.z)) {
         bd = d;
         best = e;
       }
@@ -737,7 +1173,6 @@ export class PaintballEngine {
     f.target = best;
     if (Math.random() < 0.25) f.strafe = -f.strafe;
 
-    // unstuck check
     if (f.pos.distanceToSquared(f.lastPos) < 0.02 && !f.target) {
       f.stuckT += 0.25;
       if (f.stuckT > 1) {
@@ -748,7 +1183,6 @@ export class PaintballEngine {
     } else f.stuckT = 0;
     f.lastPos.copy(f.pos);
 
-    // choose destination if idle
     if (!f.target && !f.wp && f.path.length === 0) {
       const insideRing = Math.abs(f.pos.x) <= APRON_HALF && Math.abs(f.pos.z) <= APRON_HALF && f.pos.y > 0.8;
       if (insideRing) {
@@ -778,7 +1212,6 @@ export class PaintballEngine {
       const dy = t.pos.y + 1.2 - (f.pos.y + 1.45);
       f.pitch = Math.atan2(dy, dist);
       f.aiming = true;
-      // strafe + spacing
       const fx = dx / (dist || 1);
       const fz = dz / (dist || 1);
       const rx = -fz * f.strafe;
@@ -793,7 +1226,6 @@ export class PaintballEngine {
         wishX = rx;
         wishZ = rz;
       }
-      // shoot
       f.fireCd -= dt;
       if (f.fireCd <= 0 && dist < 40) {
         if (f.burst <= 0) f.burst = 2 + Math.floor(Math.random() * 3);
@@ -836,7 +1268,12 @@ export class PaintballEngine {
   // ================= per-frame =================
   private updatePlayer(dt: number) {
     const p = this.player;
+    this.nadeCd.paint = Math.max(0, this.nadeCd.paint - dt);
+    this.nadeCd.smoke = Math.max(0, this.nadeCd.smoke - dt);
     if (!p.alive) return;
+
+    const speedMult = p.fx.has("speed") ? 1.5 : 1;
+    const jumpMult = p.fx.has("jump") ? 1.55 : 1;
 
     if (p.climbing) {
       if (!this.nearCageWall(p) || p.pos.y >= CAGE_H) {
@@ -846,7 +1283,6 @@ export class PaintballEngine {
         p.walkPhase += dt * 4;
         if (p.pos.y >= CAGE_H) {
           p.pos.y = CAGE_H + 0.04;
-          // pull onto the roof
           const toC = new THREE.Vector3(-p.pos.x, 0, -p.pos.z).normalize();
           p.pos.x += toC.x * 0.7;
           p.pos.z += toC.z * 0.7;
@@ -885,24 +1321,20 @@ export class PaintballEngine {
       }
       const sprint = this.keys.has("ShiftLeft") || this.keys.has("ShiftRight");
       if (this.keys.has("Space") && p.grounded) {
-        p.vel.y = JUMP_V;
+        p.vel.y = JUMP_V * jumpMult;
         p.grounded = false;
       }
-      this.moveFighter(p, dt, wx, wz, sprint ? SPRINT : WALK);
+      this.moveFighter(p, dt, wx, wz, (sprint ? SPRINT : WALK) * speedMult);
     }
 
-    // firing
     p.fireCd -= dt;
     const holdingCan = this.cans.some((c) => c.held === p);
     if (this.mouseDown && !holdingCan && p.fireCd <= 0 && !p.climbing) {
       const dir = this.playerAimDir();
-      dir.x += (Math.random() - 0.5) * 0.012;
-      dir.y += (Math.random() - 0.5) * 0.012;
-      this.fire(p, dir.normalize());
-      this.shake = Math.max(this.shake, 0.04);
+      this.fire(p, dir);
+      this.shake = Math.max(this.shake, 0.045);
     }
 
-    // interaction prompt
     if (p.climbing) this.prompt = "E — let go";
     else if (holdingCan) this.prompt = "CLICK — hurl the trash can!   E — set it down";
     else if (this.nearestCan(p.pos, 1.7)) this.prompt = "E — pick up trash can";
@@ -911,9 +1343,9 @@ export class PaintballEngine {
   }
 
   private updateFighterVisual(f: Fighter, dt: number) {
+    this.updateEffects(f, dt);
     if (!f.alive) {
       f.deadT += dt;
-      // topple backwards
       const k = Math.min(1, f.deadT / 0.4);
       f.rig.group.rotation.x = (-Math.PI / 2) * k;
       if (f.deadT >= RESPAWN_T) this.respawn(f);
@@ -926,50 +1358,86 @@ export class PaintballEngine {
     poseHumanoid(f.rig, f.walkPhase, f.speed01, f.pitch, f.aiming && !f.climbing, f.climbing);
   }
 
+  private hitRadius(f: Fighter): number {
+    return 0.38 * f.scaleCur;
+  }
+
   private updateBalls(dt: number) {
     for (let i = this.balls.length - 1; i >= 0; i--) {
       const b = this.balls[i];
       b.life -= dt;
-      b.vel.y -= BALL_GRAV * dt;
+      b.vel.y -= b.grav * dt;
+      // homing steers toward the nearest enemy
+      if (b.homing) {
+        let best: Fighter | null = null;
+        let bd = 28;
+        for (const f of this.fighters) {
+          if (f.team === b.owner.team || !f.alive) continue;
+          const d = b.pos.distanceTo(f.pos);
+          if (d < bd) {
+            bd = d;
+            best = f;
+          }
+        }
+        if (best) {
+          const speed = b.vel.length();
+          const want = new THREE.Vector3(best.pos.x, best.pos.y + 1.1, best.pos.z).sub(b.pos).normalize();
+          b.vel.normalize().lerp(want, Math.min(1, dt * 4)).normalize().multiplyScalar(speed);
+        }
+      }
       b.pos.addScaledVector(b.vel, dt);
       b.mesh.position.copy(b.pos);
+      // stretch along velocity so shots read as tracers
+      b.mesh.lookAt(b.pos.clone().add(b.vel));
+      const r = (b.mesh.scale.x + b.mesh.scale.y) / 2 || 0.07;
+      b.mesh.scale.set(r, r, r * 2.4);
+
       let dead = b.life <= 0 || Math.abs(b.pos.x) > ARENA + 30 || Math.abs(b.pos.z) > ARENA + 30;
+      let exploded = false;
 
       if (!dead) {
-        // fighters
         for (const f of this.fighters) {
           if (f === b.owner || !f.alive || f.team === b.owner.team) continue;
-          const cy = THREE.MathUtils.clamp(b.pos.y, f.pos.y + 0.15, f.pos.y + 1.6);
+          const hr = this.hitRadius(f);
+          const top = f.pos.y + 1.6 * f.scaleCur;
+          const cy = THREE.MathUtils.clamp(b.pos.y, f.pos.y + 0.15, top);
           const dx = b.pos.x - f.pos.x;
           const dz = b.pos.z - f.pos.z;
-          if (dx * dx + dz * dz < 0.38 * 0.38 && Math.abs(b.pos.y - cy) < 0.25) {
-            this.damage(f, b.owner, HIT_DMG, b.pos, false);
+          if (dx * dx + dz * dz < hr * hr && Math.abs(b.pos.y - cy) < 0.25) {
+            this.damage(f, b.owner, b.dmg, b.pos, false);
             this.addBurst(b.pos, new THREE.Vector3(0, 1, 0), b.color);
             dead = true;
+            exploded = !!b.explosive;
             break;
           }
         }
       }
       if (!dead) {
-        // floor (or the side of a raised floor, e.g. the ring skirt)
         const fh = this.world.floorHeightAt(b.pos.x, b.pos.z, b.pos.y);
         if (b.pos.y <= fh + 0.04) {
-          if (b.pos.y < fh - 0.2) {
-            // hit a vertical face — splat outward
-            const n = new THREE.Vector3(b.pos.x, 0, b.pos.z).normalize().multiplyScalar(-1);
-            const hit = b.pos.clone().addScaledVector(n, -0.05);
-            this.addDecal(hit, n, b.color);
-            this.addBurst(hit, n, b.color);
+          if (b.bounces > 0 && b.pos.y >= fh - 0.2) {
+            b.bounces--;
+            b.pos.y = fh + 0.05;
+            b.vel.y = Math.abs(b.vel.y) * 0.75;
+            b.vel.x *= 0.9;
+            b.vel.z *= 0.9;
           } else {
-            this.addDecal(new THREE.Vector3(b.pos.x, fh, b.pos.z), new THREE.Vector3(0, 1, 0), b.color);
-            this.addBurst(b.pos, new THREE.Vector3(0, 1, 0), b.color);
+            if (b.pos.y < fh - 0.2) {
+              const n = new THREE.Vector3(b.pos.x, 0, b.pos.z).normalize().multiplyScalar(-1);
+              const hit = b.pos.clone().addScaledVector(n, -0.05);
+              this.addDecal(hit, n, b.color);
+              this.addBurst(hit, n, b.color);
+            } else {
+              this.addDecal(new THREE.Vector3(b.pos.x, fh, b.pos.z), new THREE.Vector3(0, 1, 0), b.color);
+              this.addBurst(b.pos, new THREE.Vector3(0, 1, 0), b.color);
+            }
+            this.sfx.splat();
+            dead = true;
+            exploded = !!b.explosive;
           }
-          this.sfx.splat();
-          dead = true;
         }
       }
       if (!dead) {
-        // tree trunks / rocks
         for (const c of this.world.cylinders) {
           if (c.r < 0.2) continue;
           const dx = b.pos.x - c.x;
@@ -977,17 +1445,27 @@ export class PaintballEngine {
           const d = Math.hypot(dx, dz);
           if (d < c.r + 0.06 && b.pos.y < 11) {
             const n = new THREE.Vector3(dx / (d || 1), 0, dz / (d || 1));
-            const hit = new THREE.Vector3(c.x + n.x * c.r, b.pos.y, c.z + n.z * c.r);
-            this.addDecal(hit, n, b.color);
-            this.addBurst(hit, n, b.color);
-            this.sfx.splat();
-            dead = true;
+            if (b.bounces > 0) {
+              b.bounces--;
+              const dot = b.vel.x * n.x + b.vel.z * n.z;
+              b.vel.x -= 2 * dot * n.x;
+              b.vel.z -= 2 * dot * n.z;
+              b.vel.multiplyScalar(0.75);
+              b.pos.x = c.x + n.x * (c.r + 0.1);
+              b.pos.z = c.z + n.z * (c.r + 0.1);
+            } else {
+              const hit = new THREE.Vector3(c.x + n.x * c.r, b.pos.y, c.z + n.z * c.r);
+              this.addDecal(hit, n, b.color);
+              this.addBurst(hit, n, b.color);
+              this.sfx.splat();
+              dead = true;
+              exploded = !!b.explosive;
+            }
             break;
           }
         }
       }
       if (!dead) {
-        // trash cans ping off
         for (const c of this.cans) {
           if (c.held) continue;
           const dx = b.pos.x - c.pos.x;
@@ -996,13 +1474,84 @@ export class PaintballEngine {
             this.addBurst(b.pos, new THREE.Vector3(dx, 0.4, dz).normalize(), b.color);
             this.sfx.clang();
             dead = true;
+            exploded = !!b.explosive;
             break;
           }
         }
       }
       if (dead) {
+        if (exploded) this.explode(b.pos, b.owner, b.explosive!, b.dmg);
         this.scene.remove(b.mesh);
         this.balls.splice(i, 1);
+      }
+    }
+  }
+
+  private explode(pos: THREE.Vector3, owner: Fighter, radius: number, dmg: number) {
+    this.sfx.boom();
+    this.shake = Math.max(this.shake, 0.4);
+    for (let i = 0; i < 4; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const d = Math.random() * radius * 0.8;
+      const px = pos.x + Math.cos(ang) * d;
+      const pz = pos.z + Math.sin(ang) * d;
+      const fh = this.world.floorHeightAt(px, pz, pos.y);
+      this.addDecal(new THREE.Vector3(px, fh, pz), new THREE.Vector3(0, 1, 0), this.paintColor(owner.team));
+    }
+    for (let i = 0; i < 3; i++) {
+      this.addBurst(pos, new THREE.Vector3((Math.random() - 0.5) * 2, 1, (Math.random() - 0.5) * 2).normalize(), this.paintColor(owner.team));
+    }
+    for (const f of this.fighters) {
+      if (!f.alive || f.team === owner.team) continue;
+      const d = Math.hypot(f.pos.x - pos.x, (f.pos.y + 1) - pos.y, f.pos.z - pos.z);
+      if (d < radius) {
+        this.damage(f, owner, Math.round(dmg * (1 - (d / radius) * 0.5)), new THREE.Vector3(f.pos.x, f.pos.y + 1.1, f.pos.z), false);
+      }
+    }
+  }
+
+  private updateNades(dt: number) {
+    for (let i = this.nades.length - 1; i >= 0; i--) {
+      const n = this.nades[i];
+      n.fuse -= dt;
+      n.vel.y -= 18 * dt;
+      n.pos.addScaledVector(n.vel, dt);
+      const [rx, rz] = this.resolveXZ(n.pos.x, n.pos.z, n.pos.y, 0.13, n.pos.y + 0.26);
+      n.pos.x = rx;
+      n.pos.z = rz;
+      const fh = this.world.floorHeightAt(n.pos.x, n.pos.z, n.pos.y);
+      let landed = false;
+      if (n.pos.y <= fh + 0.1) {
+        n.pos.y = fh + 0.1;
+        landed = true;
+      }
+      n.mesh.position.copy(n.pos);
+      n.mesh.rotation.x += dt * 9;
+      if (landed || n.fuse <= 0) {
+        if (n.kind === "paint") this.detonatePaint(n.pos, n.owner);
+        else this.startSmoke(n.pos);
+        this.scene.remove(n.mesh);
+        this.disposeMesh(n.mesh);
+        this.nades.splice(i, 1);
+      }
+    }
+  }
+
+  private updateSmokes(dt: number) {
+    for (let i = this.smokes.length - 1; i >= 0; i--) {
+      const s = this.smokes[i];
+      s.life -= dt;
+      const grow = Math.min(1, (s.maxLife - s.life) * 1.6);
+      s.group.scale.setScalar(0.2 + grow * 0.8);
+      const fade = s.life < 3 ? s.life / 3 : 1;
+      for (const puff of s.group.children as THREE.Mesh[]) {
+        (puff.material as THREE.MeshLambertMaterial).opacity = 0.55 * fade;
+        puff.rotation.y += dt * 0.3;
+      }
+      if (s.life <= 0) {
+        for (const puff of [...s.group.children] as THREE.Mesh[]) this.disposeMesh(puff);
+        this.scene.remove(s.group);
+        this.smokes.splice(i, 1);
       }
     }
   }
@@ -1012,7 +1561,7 @@ export class PaintballEngine {
       c.graceT -= dt;
       if (c.held) {
         const h = c.held;
-        c.pos.set(h.pos.x, h.pos.y + 1.95, h.pos.z);
+        c.pos.set(h.pos.x, h.pos.y + 1.95 * h.scaleCur, h.pos.z);
         c.group.position.copy(c.pos);
         c.group.rotation.set(0, h.yaw, 0);
         if (!h.alive) c.held = null;
@@ -1022,7 +1571,6 @@ export class PaintballEngine {
       if (speed > 0.01 || c.pos.y > this.world.floorHeightAt(c.pos.x, c.pos.z, c.pos.y) + 0.01) {
         c.vel.y -= GRAV * 0.9 * dt;
         c.pos.addScaledVector(c.vel, dt);
-        // walls & cylinders bounce
         const [rx, rz] = this.resolveXZ(c.pos.x, c.pos.z, c.pos.y, 0.28, c.pos.y + 0.7);
         if (rx !== c.pos.x || rz !== c.pos.z) {
           const nx = rx - c.pos.x;
@@ -1046,7 +1594,6 @@ export class PaintballEngine {
           c.vel.z *= 0.72;
         }
         if (c.vel.lengthSq() < 0.04 && c.pos.y <= fh + 0.01) c.vel.set(0, 0, 0);
-        // spin while airborne, settle upright on the ground
         if (c.pos.y > fh + 0.05) {
           c.group.rotation.x += c.spin * dt;
         } else {
@@ -1054,14 +1601,14 @@ export class PaintballEngine {
           c.group.rotation.z *= Math.pow(0.001, dt);
         }
         c.group.position.copy(c.pos);
-        // crush check
         if (speed > 5.5) {
           for (const f of this.fighters) {
             if (!f.alive) continue;
             if (f === c.thrower && c.graceT > 0) continue;
             const dx = c.pos.x - f.pos.x;
             const dz = c.pos.z - f.pos.z;
-            if (dx * dx + dz * dz < 0.6 * 0.6 && c.pos.y > f.pos.y - 0.3 && c.pos.y < f.pos.y + 1.9) {
+            const hr = 0.6 * f.scaleCur;
+            if (dx * dx + dz * dz < hr * hr && c.pos.y > f.pos.y - 0.3 && c.pos.y < f.pos.y + 1.9 * f.scaleCur) {
               const attacker = c.thrower ?? f;
               if (attacker.team !== f.team || attacker === f) {
                 this.damage(f, attacker, CAN_DMG, c.pos.clone().setY(f.pos.y + 1.2), true);
@@ -1078,6 +1625,15 @@ export class PaintballEngine {
   }
 
   private updateFx(dt: number) {
+    for (let i = this.flashes.length - 1; i >= 0; i--) {
+      const fl = this.flashes[i];
+      fl.life -= dt;
+      if (fl.life <= 0) {
+        this.scene.remove(fl.sprite);
+        (fl.sprite.material as THREE.Material).dispose();
+        this.flashes.splice(i, 1);
+      }
+    }
     for (let i = this.bursts.length - 1; i >= 0; i--) {
       const b = this.bursts[i];
       b.life -= dt;
@@ -1106,8 +1662,7 @@ export class PaintballEngine {
       if (d.life < 3) (d.mesh.material as THREE.MeshBasicMaterial).opacity = d.life / 3;
       if (d.life <= 0) {
         this.scene.remove(d.mesh);
-        d.mesh.geometry.dispose();
-        (d.mesh.material as THREE.Material).dispose();
+        this.disposeMesh(d.mesh);
         this.decals.splice(i, 1);
       }
     }
@@ -1121,15 +1676,11 @@ export class PaintballEngine {
 
   private updateCamera(dt: number) {
     const p = this.player;
-    const eye = new THREE.Vector3(p.pos.x, p.pos.y + 1.5, p.pos.z);
-    const dir = new THREE.Vector3(
-      Math.cos(p.pitch) * Math.sin(p.yaw),
-      Math.sin(p.pitch),
-      Math.cos(p.pitch) * Math.cos(p.yaw)
-    );
+    const eye = new THREE.Vector3(p.pos.x, p.pos.y + 1.5 * p.scaleCur, p.pos.z);
+    const dir = this.aimVector(p);
     const right = new THREE.Vector3(-Math.cos(p.yaw), 0, Math.sin(p.yaw));
-    const wanted = eye.clone().addScaledVector(dir, -3.4).addScaledVector(right, 0.55).add(new THREE.Vector3(0, 0.32, 0));
-    // keep camera above ground
+    // over-the-shoulder: offset right so your own character doesn't block the view
+    const wanted = eye.clone().addScaledVector(dir, -3.2).addScaledVector(right, 0.95).add(new THREE.Vector3(0, 0.35, 0));
     const camFloor = this.world.floorHeightAt(wanted.x, wanted.z, wanted.y) + 0.25;
     if (wanted.y < camFloor) wanted.y = camFloor;
     this.camera.position.lerp(wanted, 1 - Math.pow(0.0001, dt));
@@ -1138,14 +1689,20 @@ export class PaintballEngine {
       this.camera.position.x += (Math.random() - 0.5) * this.shake * 0.25;
       this.camera.position.y += (Math.random() - 0.5) * this.shake * 0.25;
     }
-    const lookAt = eye.clone().addScaledVector(dir, 10);
+    const lookAt = eye.clone().addScaledVector(right, 0.5).addScaledVector(dir, 10);
     this.camera.lookAt(lookAt);
   }
 
   private pushHud() {
     const p = this.player;
+    const fx: { icon: string; name: string; sec: number }[] = [];
+    for (const [k, t] of p.fx) {
+      const def = SKILLS.find((s) => s.key === k);
+      if (def) fx.push({ icon: def.icon, name: def.name, sec: Math.ceil(t) });
+    }
     this.cb.onHud({
       hp: Math.max(0, Math.round(p.hp)),
+      shield: Math.max(0, Math.round(p.shield)),
       red: this.score.red,
       blue: this.score.blue,
       time: Math.max(0, Math.ceil(this.timeLeft)),
@@ -1154,6 +1711,11 @@ export class PaintballEngine {
       dead: !p.alive,
       respawnIn: p.alive ? 0 : Math.max(0, RESPAWN_T - p.deadT),
       onRoof: p.pos.y > CAGE_H - 0.6 && Math.abs(p.pos.x) < CAGE_HALF + 0.5 && Math.abs(p.pos.z) < CAGE_HALF + 0.5,
+      weapon: p.weapon.name,
+      weaponIcon: p.weapon.icon,
+      gPaint: Math.ceil(this.nadeCd.paint),
+      gSmoke: Math.ceil(this.nadeCd.smoke),
+      fx,
     });
   }
 
@@ -1173,7 +1735,10 @@ export class PaintballEngine {
         this.updateFighterVisual(f, dt);
       }
       this.updateBalls(dt);
+      this.updateNades(dt);
+      this.updateSmokes(dt);
       this.updateCans(dt);
+      this.updatePickups(dt);
       this.updateFx(dt);
       this.updateCamera(dt);
       this.hudT -= dt;

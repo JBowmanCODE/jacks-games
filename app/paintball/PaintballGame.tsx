@@ -12,7 +12,8 @@ interface FeedLine {
 }
 
 const EMPTY_HUD: HudState = {
-  hp: 100, red: 0, blue: 0, time: 300, prompt: "", carrying: false, dead: false, respawnIn: 0, onRoof: false,
+  hp: 100, shield: 0, red: 0, blue: 0, time: 300, prompt: "", carrying: false, dead: false, respawnIn: 0,
+  onRoof: false, weapon: "Splat Marker", weaponIcon: "🔫", gPaint: 0, gSmoke: 0, fx: [],
 };
 
 export default function PaintballGame() {
@@ -127,8 +128,16 @@ export default function PaintballGame() {
             <span className="text-white/70">{mins}:{secs}</span>
             <span className="text-blue-400">{hud.blue} BLU</span>
           </div>
-          {/* health */}
+          {/* health + shield + weapon */}
           <div className="pointer-events-none absolute bottom-5 left-5 w-56">
+            <div className="mb-1.5 inline-flex items-center gap-2 rounded-lg bg-black/50 px-3 py-1 font-mono text-sm font-bold text-white backdrop-blur-sm">
+              <span className="text-lg">{hud.weaponIcon}</span> {hud.weapon}
+            </div>
+            {hud.shield > 0 && (
+              <div className="mb-1 h-2 overflow-hidden rounded-full bg-black/50">
+                <div className="h-full rounded-full bg-sky-400" style={{ width: `${hud.shield}%` }} />
+              </div>
+            )}
             <div className="mb-1 font-mono text-xs font-bold tracking-widest text-white/80">HEALTH</div>
             <div className="h-3.5 overflow-hidden rounded-full bg-black/50">
               <div
@@ -140,10 +149,38 @@ export default function PaintballGame() {
               />
             </div>
           </div>
-          {/* roof badge */}
-          {hud.onRoof && (
-            <div className="pointer-events-none absolute bottom-5 right-5 rounded-lg bg-yellow-400/90 px-3 py-1 font-mono text-sm font-black text-black shadow-lg">
-              🏆 ON TOP OF THE CAGE
+          {/* grenades */}
+          <div className="pointer-events-none absolute bottom-5 right-5 flex flex-col items-end gap-2">
+            {hud.onRoof && (
+              <div className="rounded-lg bg-yellow-400/90 px-3 py-1 font-mono text-sm font-black text-black shadow-lg">
+                🏆 ON TOP OF THE CAGE
+              </div>
+            )}
+            <div className="flex gap-2">
+              <div
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-mono text-sm font-bold backdrop-blur-sm ${
+                  hud.gPaint === 0 ? "bg-pink-500/85 text-white" : "bg-black/50 text-white/50"
+                }`}
+              >
+                🎨 {hud.gPaint === 0 ? "G" : `${hud.gPaint}s`}
+              </div>
+              <div
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-mono text-sm font-bold backdrop-blur-sm ${
+                  hud.gSmoke === 0 ? "bg-slate-400/85 text-black" : "bg-black/50 text-white/50"
+                }`}
+              >
+                💨 {hud.gSmoke === 0 ? "H" : `${hud.gSmoke}s`}
+              </div>
+            </div>
+          </div>
+          {/* active skill effects */}
+          {hud.fx.length > 0 && (
+            <div className="pointer-events-none absolute left-5 top-1/2 flex -translate-y-1/2 flex-col gap-1.5">
+              {hud.fx.map((e) => (
+                <div key={e.name} className="flex items-center gap-2 rounded-lg bg-black/55 px-3 py-1.5 font-mono text-sm font-bold text-yellow-200 backdrop-blur-sm">
+                  <span className="text-lg">{e.icon}</span> {e.name} <span className="text-white/70">{e.sec}s</span>
+                </div>
+              ))}
             </div>
           )}
           {/* interaction prompt */}
@@ -214,7 +251,14 @@ export default function PaintballGame() {
             <span><b className="text-lime-300">SPACE</b> — jump</span>
             <span><b className="text-lime-300">SHIFT</b> — sprint</span>
             <span><b className="text-lime-300">E</b> — climb cage / grab can</span>
+            <span><b className="text-pink-300">G</b> — paint grenade</span>
+            <span><b className="text-slate-300">H</b> — smoke grenade</span>
           </div>
+          <p className="max-w-md text-xs text-lime-100/70">
+            Hunt for glowing pickups: <b className="text-yellow-300">10 upgrade weapons</b> (bazooka, minigun,
+            homing hornet…) and <b className="text-cyan-300">crazy skills</b> — speed boost, GIANT mode, tiny mode,
+            invincibility, moon boots and more!
+          </p>
           {isTouch && (
             <p className="max-w-sm rounded-lg bg-yellow-500/20 px-3 py-2 text-xs text-yellow-200">
               ⚠️ This game needs a keyboard and mouse — play it on a computer!

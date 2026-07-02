@@ -216,6 +216,35 @@ export function skyTexture(): THREE.CanvasTexture {
   return t;
 }
 
+/** Soft radial glow for muzzle flashes and pickups. */
+export function glowTexture(): THREE.CanvasTexture {
+  const { c, ctx } = makeCanvas(64, 64);
+  const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+  grad.addColorStop(0, "rgba(255,255,255,1)");
+  grad.addColorStop(0.4, "rgba(255,255,255,0.5)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 64, 64);
+  const t = toTexture(c, 1);
+  t.wrapS = THREE.ClampToEdgeWrapping;
+  t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
+}
+
+/** An emoji rendered onto a transparent sprite texture. */
+export function emojiTexture(emoji: string): THREE.CanvasTexture {
+  const { c, ctx } = makeCanvas(128, 128);
+  ctx.clearRect(0, 0, 128, 128);
+  ctx.font = "96px serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(emoji, 64, 72);
+  const t = toTexture(c, 1);
+  t.wrapS = THREE.ClampToEdgeWrapping;
+  t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
+}
+
 /** Frond/leaf texture with alpha for palms and ferns. */
 export function frondTexture(color: string): THREE.CanvasTexture {
   const { c, ctx } = makeCanvas(128, 256);

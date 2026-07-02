@@ -177,6 +177,7 @@ export function createHumanoid(teamColor: number, seed: number): Humanoid {
     const hand = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), skinMat);
     hand.position.y = -lowerArmLen - 0.02;
     elbow.add(hand);
+    shoulder.add(elbow);
     torso.add(shoulder);
     return { shoulder, elbow };
   };
@@ -188,6 +189,7 @@ export function createHumanoid(teamColor: number, seed: number): Humanoid {
   gun.position.set(0, -lowerArmLen - 0.04, -0.05);
   // barrel points along the arm; hopper sits on top when aiming
   gun.rotation.set(-Math.PI / 2, 0, Math.PI);
+  gun.scale.setScalar(1.35);
   armR.elbow.add(gun);
 
   return {
