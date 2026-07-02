@@ -15,7 +15,7 @@ const CLIMB_SPEED = 2.4;
 const CAN_DMG = 100;
 const RESPAWN_T = 3.5;
 const MATCH_TIME = 300;
-const WIN_SCORE = 25;
+const WIN_SCORE = 10; // splats take longer now, so first to 10 wins
 const STEP_UP = 0.55;
 const NADE_CD = 60;
 
@@ -45,22 +45,24 @@ export interface WeaponDef {
   rainbow?: boolean;
 }
 
+// Kid-friendly damage: the starter marker takes 10 hits to splat someone,
+// and every upgrade is scaled around that.
 const STARTER: WeaponDef = {
   key: "marker", name: "Splat Marker", icon: "🔫",
-  interval: 0.16, speed: 42, dmg: 34, pellets: 1, spread: 0.012, ballR: 0.07, grav: 8,
+  interval: 0.16, speed: 42, dmg: 10, pellets: 1, spread: 0.012, ballR: 0.07, grav: 8,
 };
 
 const WEAPONS: WeaponDef[] = [
-  { key: "smg", name: "Rapid Marker", icon: "💨", interval: 0.07, speed: 46, dmg: 16, pellets: 1, spread: 0.035, ballR: 0.06, grav: 8 },
-  { key: "shotgun", name: "Double-Barrel Splatter", icon: "🎇", interval: 0.8, speed: 38, dmg: 20, pellets: 6, spread: 0.09, ballR: 0.06, grav: 9 },
-  { key: "sniper", name: "Sniper Splat", icon: "🎯", interval: 0.95, speed: 75, dmg: 100, pellets: 1, spread: 0.002, ballR: 0.07, grav: 3 },
-  { key: "minigun", name: "Paint Minigun", icon: "🌀", interval: 0.045, speed: 44, dmg: 12, pellets: 1, spread: 0.05, ballR: 0.055, grav: 8 },
-  { key: "burst", name: "Triple Threat", icon: "🔱", interval: 0.34, speed: 44, dmg: 25, pellets: 3, spread: 0.02, ballR: 0.065, grav: 8 },
-  { key: "bazooka", name: "Paint Bazooka", icon: "🚀", interval: 1.15, speed: 27, dmg: 80, pellets: 1, spread: 0.01, ballR: 0.16, grav: 13, explosive: 3.4 },
-  { key: "bouncer", name: "Bouncy Blaster", icon: "🏀", interval: 0.3, speed: 36, dmg: 30, pellets: 1, spread: 0.02, ballR: 0.08, grav: 11, bounces: 2 },
-  { key: "hornet", name: "Homing Hornet", icon: "🐝", interval: 0.42, speed: 32, dmg: 28, pellets: 1, spread: 0.02, ballR: 0.08, grav: 2, homing: true },
-  { key: "rainbow", name: "Rainbow Repeater", icon: "🌈", interval: 0.09, speed: 46, dmg: 20, pellets: 1, spread: 0.025, ballR: 0.065, grav: 8, rainbow: true },
-  { key: "goo", name: "Golden Goo Cannon", icon: "⭐", interval: 0.5, speed: 50, dmg: 55, pellets: 1, spread: 0.008, ballR: 0.1, grav: 6 },
+  { key: "smg", name: "Rapid Marker", icon: "💨", interval: 0.07, speed: 46, dmg: 5, pellets: 1, spread: 0.035, ballR: 0.06, grav: 8 },
+  { key: "shotgun", name: "Double-Barrel Splatter", icon: "🎇", interval: 0.8, speed: 38, dmg: 6, pellets: 6, spread: 0.09, ballR: 0.06, grav: 9 },
+  { key: "sniper", name: "Sniper Splat", icon: "🎯", interval: 0.95, speed: 75, dmg: 34, pellets: 1, spread: 0.002, ballR: 0.07, grav: 3 },
+  { key: "minigun", name: "Paint Minigun", icon: "🌀", interval: 0.045, speed: 44, dmg: 4, pellets: 1, spread: 0.05, ballR: 0.055, grav: 8 },
+  { key: "burst", name: "Triple Threat", icon: "🔱", interval: 0.34, speed: 44, dmg: 8, pellets: 3, spread: 0.02, ballR: 0.065, grav: 8 },
+  { key: "bazooka", name: "Paint Bazooka", icon: "🚀", interval: 1.15, speed: 27, dmg: 25, pellets: 1, spread: 0.01, ballR: 0.16, grav: 13, explosive: 3.4 },
+  { key: "bouncer", name: "Bouncy Blaster", icon: "🏀", interval: 0.3, speed: 36, dmg: 9, pellets: 1, spread: 0.02, ballR: 0.08, grav: 11, bounces: 2 },
+  { key: "hornet", name: "Homing Hornet", icon: "🐝", interval: 0.42, speed: 32, dmg: 8, pellets: 1, spread: 0.02, ballR: 0.08, grav: 2, homing: true },
+  { key: "rainbow", name: "Rainbow Repeater", icon: "🌈", interval: 0.09, speed: 46, dmg: 6, pellets: 1, spread: 0.025, ballR: 0.065, grav: 8, rainbow: true },
+  { key: "goo", name: "Golden Goo Cannon", icon: "⭐", interval: 0.5, speed: 50, dmg: 15, pellets: 1, spread: 0.008, ballR: 0.1, grav: 6 },
 ];
 
 // ---------- skills ----------
@@ -689,7 +691,7 @@ export class PaintballEngine {
     can.held = null;
     can.thrower = f;
     can.graceT = 0.45;
-    const dir = this.aimVector(f);
+    const dir = f.isPlayer ? this.cameraDir() : this.aimVector(f);
     can.vel.copy(dir).multiplyScalar(13).add(new THREE.Vector3(0, 4.2, 0));
     can.spin = 6 + Math.random() * 4;
     this.sfx.whoosh();
@@ -722,7 +724,7 @@ export class PaintballEngine {
     mesh.position.copy(origin);
     mesh.castShadow = true;
     this.scene.add(mesh);
-    const dir = this.aimVector(p);
+    const dir = this.cameraDir();
     this.nades.push({
       kind,
       pos: origin.clone(),
@@ -752,7 +754,7 @@ export class PaintballEngine {
       if (!f.alive || f.team === owner.team) continue;
       const d = Math.hypot(f.pos.x - pos.x, (f.pos.y + 1) - pos.y, f.pos.z - pos.z);
       if (d < 4.5) {
-        const dmg = Math.round(85 * (1 - (d / 4.5) * 0.55));
+        const dmg = Math.round(30 * (1 - (d / 4.5) * 0.55));
         this.damage(f, owner, dmg, new THREE.Vector3(f.pos.x, f.pos.y + 1.1, f.pos.z), false);
       }
     }
@@ -804,10 +806,12 @@ export class PaintballEngine {
     return mat;
   }
 
-  private fire(f: Fighter, dir: THREE.Vector3) {
+  private fire(f: Fighter, dir: THREE.Vector3, originOverride?: THREE.Vector3) {
     const w = f.weapon;
     const origin = new THREE.Vector3();
     f.rig.muzzle.getWorldPosition(origin);
+    const flashPos = origin.clone();
+    if (originOverride) origin.copy(originOverride);
     for (let i = 0; i < w.pellets; i++) {
       const color = w.rainbow
         ? new THREE.Color().setHSL(Math.random(), 1, 0.55).getHex()
@@ -832,9 +836,9 @@ export class PaintballEngine {
         homing: !!w.homing,
       });
     }
-    // muzzle flash
+    // muzzle flash (always at the gun tip)
     const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: 0xfff0a8, transparent: true, depthWrite: false }));
-    flash.position.copy(origin);
+    flash.position.copy(flashPos);
     flash.scale.setScalar(0.5 + Math.random() * 0.2);
     this.scene.add(flash);
     this.flashes.push({ sprite: flash, life: 0.06 });
@@ -844,14 +848,12 @@ export class PaintballEngine {
     this.sfx.shoot();
   }
 
-  private playerAimDir(): THREE.Vector3 {
-    const p = this.player;
-    // converge toward the crosshair point 42m out
-    const camTarget = this.camera.position.clone().add(this.cameraDir().multiplyScalar(42));
-    const origin = new THREE.Vector3();
-    p.rig.muzzle.getWorldPosition(origin);
-    const d = camTarget.sub(origin);
-    return d.lengthSq() > 0 ? d.normalize() : this.aimVector(p);
+  /** Shots travel exactly along the crosshair ray so paint lands on the cross. */
+  private playerShotRay(): { origin: THREE.Vector3; dir: THREE.Vector3 } {
+    const dir = this.cameraDir();
+    // spawn just past the player's body, on the camera axis
+    const origin = this.camera.position.clone().addScaledVector(dir, 1.6);
+    return { origin, dir };
   }
 
   private cameraDir(): THREE.Vector3 {
@@ -1330,8 +1332,8 @@ export class PaintballEngine {
     p.fireCd -= dt;
     const holdingCan = this.cans.some((c) => c.held === p);
     if (this.mouseDown && !holdingCan && p.fireCd <= 0 && !p.climbing) {
-      const dir = this.playerAimDir();
-      this.fire(p, dir);
+      const ray = this.playerShotRay();
+      this.fire(p, ray.dir, ray.origin);
       this.shake = Math.max(this.shake, 0.045);
     }
 
