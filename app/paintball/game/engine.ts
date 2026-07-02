@@ -14,8 +14,7 @@ const BOT_SPEED = 3.7;
 const CLIMB_SPEED = 2.4;
 const CAN_DMG = 100;
 const RESPAWN_T = 3.5;
-const MATCH_TIME = 600; // 10-minute matches
-const WIN_SCORE = 10; // splats take longer now, so first to 10 wins
+const MATCH_TIME = 600; // 10-minute matches; most splats when time runs out wins
 const STEP_UP = 0.55;
 const NADE_CD = 60;
 
@@ -1170,7 +1169,6 @@ export class PaintballEngine {
         this.cb.onPraise(list[Math.floor(Math.random() * list.length)]);
       }
       this.sfx.splat();
-      if (this.score.red >= WIN_SCORE || this.score.blue >= WIN_SCORE) this.endGame();
     }
   }
 
