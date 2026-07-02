@@ -27,6 +27,32 @@ const PAINT_BLUE = [0x22aaff, 0x3355ff, 0x00ddcc];
 const RED_NAMES = ["Jack", "Rex", "Maya", "Duke", "Zoe"];
 const BLUE_NAMES = ["Vince", "Kira", "Bruno", "Tess", "Axel"];
 
+const PRAISE = [
+  "Nice Going!",
+  "You hit that!",
+  "Boom, he's gone!",
+  "What a shot!",
+  "SPLAT-TASTIC!",
+  "Painted 'em!",
+  "Bullseye!",
+  "Splat attack!",
+  "Unstoppable!",
+  "Paint master!",
+];
+const PRAISE_BIG = [
+  "BOOM! He's GONE!",
+  "MEGA SPLAT!",
+  "Total wipeout!",
+  "KABOOM!!!",
+  "That's gotta hurt!",
+  "Now THAT'S paint!",
+];
+
+type DamageCause = "ball" | "can" | "bomb";
+
+const BOMB_RESPAWN = 120;
+const BOMB_RADIUS = 6;
+
 // ---------- weapons ----------
 export interface WeaponDef {
   key: string;
@@ -66,7 +92,7 @@ const WEAPONS: WeaponDef[] = [
 ];
 
 // ---------- skills ----------
-type SkillKey = "speed" | "big" | "small" | "invincible" | "jump" | "rapid" | "shield";
+type SkillKey = "speed" | "big" | "small" | "invincible" | "jump" | "rapid" | "shield" | "arepa";
 
 interface SkillDef {
   key: SkillKey;
@@ -83,6 +109,8 @@ const SKILLS: SkillDef[] = [
   { key: "jump", name: "Moon Boots", icon: "🐰", dur: 30 },
   { key: "rapid", name: "Rapid Fire", icon: "🔥", dur: 20 },
   { key: "shield", name: "Paint Shield", icon: "🛡️", dur: 0 },
+  { key: "arepa", name: "Colombian Arepa", icon: "🫓", dur: 0 },
+  { key: "arepa", name: "Colombian Arepa", icon: "🫓", dur: 0 }, // twice in the pool — arepas are common!
 ];
 
 export interface HudState {
@@ -93,6 +121,7 @@ export interface HudState {
   time: number;
   prompt: string;
   carrying: boolean;
+  carryingBomb: boolean;
   dead: boolean;
   respawnIn: number;
   onRoof: boolean;
@@ -108,6 +137,7 @@ export interface EngineCallbacks {
   onKill(line: string, isCan: boolean): void;
   onGameOver(winner: "red" | "blue" | "draw", red: number, blue: number): void;
   onDamage(): void;
+  onPraise(text: string): void;
 }
 
 interface Fighter {
@@ -187,6 +217,19 @@ interface Smoke {
   life: number;
   maxLife: number;
   radius: number;
+}
+
+interface BombState {
+  group: THREE.Group;
+  icon: THREE.Sprite;
+  pos: THREE.Vector3;
+  vel: THREE.Vector3;
+  state: "idle" | "held" | "flying" | "gone";
+  holder: Fighter | null;
+  thrower: Fighter | null;
+  respawnT: number;
+  bobT: number;
+  fuse: number;
 }
 
 interface Pickup {
@@ -376,6 +419,8 @@ export class PaintballEngine {
   private nades: Nade[] = [];
   private smokes: Smoke[] = [];
   private pickups: Pickup[] = [];
+  private bomb!: BombState;
+  private bombHome = new THREE.Vector3(0, CAGE_H + 0.04, 0);
 
   private keys = new Set<string>();
   private mouseDown = false;
@@ -409,6 +454,7 @@ export class PaintballEngine {
     this.spawnTeams();
     this.spawnCans();
     this.spawnPickups();
+    this.spawnBomb();
     this.bindInput();
     this.renderer.render(this.scene, this.camera);
   }
@@ -503,6 +549,139 @@ export class PaintballEngine {
     }
   }
 
+  private spawnBomb() {
+    const group = new THREE.Group();
+    const shell = new THREE.Mesh(
+      new THREE.SphereGeometry(0.3, 14, 12),
+      new THREE.MeshStandardMaterial({ color: 0x14161a, roughness: 0.35, metalness: 0.7 })
+    );
+    shell.position.y = 0.3;
+    shell.castShadow = true;
+    group.add(shell);
+    const fuseStub = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.035, 0.035, 0.16, 8),
+      new THREE.MeshStandardMaterial({ color: 0x8a7a58, roughness: 0.9 })
+    );
+    fuseStub.position.y = 0.65;
+    group.add(fuseStub);
+    const spark = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: this.glowTex, color: 0xffa02e, transparent: true, depthWrite: false })
+    );
+    spark.scale.setScalar(0.35);
+    spark.position.y = 0.78;
+    group.add(spark);
+    const icon = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: emojiTexture("💣"), transparent: true, depthWrite: false })
+    );
+    icon.scale.set(0.9, 0.9, 1);
+    icon.position.y = 1.35;
+    group.add(icon);
+    group.position.copy(this.bombHome);
+    this.scene.add(group);
+    this.bomb = {
+      group, icon,
+      pos: this.bombHome.clone(),
+      vel: new THREE.Vector3(),
+      state: "idle", holder: null, thrower: null,
+      respawnT: 0, bobT: 0, fuse: 0,
+    };
+  }
+
+  private throwBomb() {
+    const b = this.bomb;
+    const p = this.player;
+    b.state = "flying";
+    b.holder = null;
+    b.thrower = p;
+    b.fuse = 4;
+    b.pos.set(p.pos.x, p.pos.y + 1.7 * p.scaleCur, p.pos.z);
+    const dir = this.cameraDir();
+    b.vel.copy(dir).multiplyScalar(14).add(new THREE.Vector3(0, 4.8, 0));
+    this.sfx.whoosh();
+  }
+
+  private detonateBomb(pos: THREE.Vector3) {
+    const b = this.bomb;
+    this.sfx.boom();
+    this.sfx.boom();
+    this.shake = Math.max(this.shake, 0.9);
+    for (let i = 0; i < 10; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const d = Math.random() * BOMB_RADIUS * 0.75;
+      const px = pos.x + Math.cos(ang) * d;
+      const pz = pos.z + Math.sin(ang) * d;
+      const fh = this.world.floorHeightAt(px, pz, pos.y);
+      this.addDecal(new THREE.Vector3(px, fh, pz), new THREE.Vector3(0, 1, 0), this.paintColor(Math.random() < 0.5 ? 0 : 1));
+    }
+    for (let i = 0; i < 6; i++) {
+      this.addBurst(
+        pos,
+        new THREE.Vector3((Math.random() - 0.5) * 2, 1, (Math.random() - 0.5) * 2).normalize(),
+        [0xff8822, 0xffcc22, 0xff4422, 0xffffff][i % 4]
+      );
+    }
+    // the BIG BOMB spares no one — both teams, even the thrower
+    const thrower = b.thrower ?? this.player;
+    for (const f of this.fighters) {
+      if (!f.alive) continue;
+      const d = Math.hypot(f.pos.x - pos.x, (f.pos.y + 1) - pos.y, f.pos.z - pos.z);
+      if (d < BOMB_RADIUS) {
+        this.damage(f, thrower, 999, new THREE.Vector3(f.pos.x, f.pos.y + 1.1, f.pos.z), "bomb");
+      }
+    }
+    b.state = "gone";
+    b.group.visible = false;
+    b.respawnT = BOMB_RESPAWN;
+  }
+
+  private updateBomb(dt: number) {
+    const b = this.bomb;
+    if (b.state === "gone") {
+      b.respawnT -= dt;
+      if (b.respawnT <= 0) {
+        b.state = "idle";
+        b.pos.copy(this.bombHome);
+        b.group.position.copy(b.pos);
+        b.group.visible = true;
+        this.cb.onKill("💣 The BIG BOMB is back on the cage roof!", true);
+      }
+      return;
+    }
+    if (b.state === "idle") {
+      b.bobT += dt;
+      b.icon.position.y = 1.35 + Math.sin(b.bobT * 2.4) * 0.12;
+      b.group.rotation.y += dt;
+      return;
+    }
+    if (b.state === "held") {
+      const h = b.holder!;
+      b.pos.set(h.pos.x, h.pos.y + 2.05 * h.scaleCur, h.pos.z);
+      b.group.position.copy(b.pos);
+      if (!h.alive) {
+        // dropped where they fell — still armed and grabbable
+        b.state = "idle";
+        b.holder = null;
+        b.pos.y = this.world.floorHeightAt(b.pos.x, b.pos.z, b.pos.y);
+        b.group.position.copy(b.pos);
+      }
+      return;
+    }
+    // flying
+    b.fuse -= dt;
+    b.vel.y -= 18 * dt;
+    b.pos.addScaledVector(b.vel, dt);
+    const [rx, rz] = this.resolveXZ(b.pos.x, b.pos.z, b.pos.y, 0.3, b.pos.y + 0.6);
+    b.pos.x = rx;
+    b.pos.z = rz;
+    b.group.position.copy(b.pos);
+    b.group.rotation.x += dt * 7;
+    const fh = this.world.floorHeightAt(b.pos.x, b.pos.z, b.pos.y);
+    if (b.pos.y <= fh + 0.1 || b.fuse <= 0) {
+      b.pos.y = Math.max(b.pos.y, fh);
+      this.detonateBomb(b.pos);
+    }
+  }
+
   private rollPickup(p: Pickup) {
     const mat = p.icon.material as THREE.SpriteMaterial;
     mat.map?.dispose();
@@ -538,6 +717,10 @@ export class PaintballEngine {
   };
   private onMouseDown = (e: MouseEvent) => {
     if (e.button !== 0 || !this.running) return;
+    if (this.bomb.state === "held" && this.bomb.holder === this.player) {
+      this.throwBomb();
+      return;
+    }
     const held = this.cans.find((c) => c.held === this.player);
     if (held) this.throwCan(held, this.player);
     else this.mouseDown = true;
@@ -599,6 +782,13 @@ export class PaintballEngine {
       p.group.visible = false;
       p.respawnT = 0.01;
     }
+    this.bomb.state = "idle";
+    this.bomb.holder = null;
+    this.bomb.thrower = null;
+    this.bomb.pos.copy(this.bombHome);
+    this.bomb.group.position.copy(this.bomb.pos);
+    this.bomb.group.rotation.set(0, 0, 0);
+    this.bomb.group.visible = true;
   }
 
   /** Debug/testing hook: place the player somewhere specific. */
@@ -640,6 +830,16 @@ export class PaintballEngine {
   }
 
   // ================= interactions =================
+  private nearBomb(): boolean {
+    const b = this.bomb;
+    const p = this.player;
+    return (
+      b.state === "idle" &&
+      Math.hypot(b.pos.x - p.pos.x, b.pos.z - p.pos.z) < 1.6 &&
+      Math.abs(b.pos.y - p.pos.y) < 1.6
+    );
+  }
+
   private interact() {
     if (!this.running) return;
     const p = this.player;
@@ -648,12 +848,26 @@ export class PaintballEngine {
       p.climbing = false;
       return;
     }
+    if (this.bomb.state === "held" && this.bomb.holder === p) {
+      // set the bomb down gently
+      this.bomb.state = "idle";
+      this.bomb.holder = null;
+      this.bomb.pos.set(p.pos.x + Math.sin(p.yaw) * 0.7, this.world.floorHeightAt(p.pos.x, p.pos.z, p.pos.y), p.pos.z + Math.cos(p.yaw) * 0.7);
+      this.bomb.group.position.copy(this.bomb.pos);
+      return;
+    }
     const held = this.cans.find((c) => c.held === p);
     if (held) {
       held.held = null;
       held.vel.set(0, 1, 0);
       held.thrower = p;
       held.graceT = 0.5;
+      return;
+    }
+    if (this.nearBomb()) {
+      this.bomb.state = "held";
+      this.bomb.holder = p;
+      this.sfx.pickup();
       return;
     }
     const near = this.nearestCan(p.pos, 1.7);
@@ -759,7 +973,7 @@ export class PaintballEngine {
       const d = Math.hypot(f.pos.x - pos.x, (f.pos.y + 1) - pos.y, f.pos.z - pos.z);
       if (d < 4.5) {
         const dmg = Math.round(30 * (1 - (d / 4.5) * 0.55));
-        this.damage(f, owner, dmg, new THREE.Vector3(f.pos.x, f.pos.y + 1.1, f.pos.z), false);
+        this.damage(f, owner, dmg, new THREE.Vector3(f.pos.x, f.pos.y + 1.1, f.pos.z), "ball");
       }
     }
   }
@@ -866,7 +1080,7 @@ export class PaintballEngine {
     return d;
   }
 
-  private damage(victim: Fighter, attacker: Fighter, dmg: number, hitWorld: THREE.Vector3, byCan: boolean) {
+  private damage(victim: Fighter, attacker: Fighter, dmg: number, hitWorld: THREE.Vector3, cause: DamageCause) {
     if (!victim.alive || this.over) return;
     if (victim.fx.has("invincible")) {
       this.addBurst(hitWorld, new THREE.Vector3(0, 1, 0), 0xffe066);
@@ -899,10 +1113,17 @@ export class PaintballEngine {
       const scoringTeam = attacker.team === victim.team ? 1 - victim.team : attacker.team;
       if (scoringTeam === 0) this.score.red++;
       else this.score.blue++;
-      this.cb.onKill(
-        byCan ? `${attacker.name} CRUSHED ${victim.name} with a trash can!` : `${attacker.name} splatted ${victim.name}`,
-        byCan
-      );
+      const line =
+        cause === "can"
+          ? `${attacker.name} CRUSHED ${victim.name} with a trash can!`
+          : cause === "bomb"
+            ? `💥 ${attacker.name} BLEW UP ${victim.name}!`
+            : `${attacker.name} splatted ${victim.name}`;
+      this.cb.onKill(line, cause !== "ball");
+      if (attacker.isPlayer && attacker !== victim) {
+        const list = cause === "ball" ? PRAISE : PRAISE_BIG;
+        this.cb.onPraise(list[Math.floor(Math.random() * list.length)]);
+      }
       this.sfx.splat();
       if (this.score.red >= WIN_SCORE || this.score.blue >= WIN_SCORE) this.endGame();
     }
@@ -944,13 +1165,20 @@ export class PaintballEngine {
   private applySkill(f: Fighter, skill: SkillDef) {
     if (skill.key === "shield") {
       f.shield = 100;
+    } else if (skill.key === "arepa") {
+      f.hp = 100;
     } else {
       f.fx.set(skill.key, skill.dur);
       // big and small are mutually exclusive
       if (skill.key === "big") f.fx.delete("small");
       if (skill.key === "small") f.fx.delete("big");
     }
-    if (f.isPlayer) this.cb.onKill(`You grabbed ${skill.icon} ${skill.name}!`, false);
+    if (f.isPlayer) {
+      this.cb.onKill(
+        skill.key === "arepa" ? "🫓 You ate a Colombian arepa — health back to 100%!" : `You grabbed ${skill.icon} ${skill.name}!`,
+        false
+      );
+    }
     this.sfx.pickup();
   }
 
@@ -1335,14 +1563,17 @@ export class PaintballEngine {
 
     p.fireCd -= dt;
     const holdingCan = this.cans.some((c) => c.held === p);
-    if (this.mouseDown && !holdingCan && p.fireCd <= 0 && !p.climbing) {
+    const holdingBomb = this.bomb.state === "held" && this.bomb.holder === p;
+    if (this.mouseDown && !holdingCan && !holdingBomb && p.fireCd <= 0 && !p.climbing) {
       const ray = this.playerShotRay();
       this.fire(p, ray.dir, ray.origin);
       this.shake = Math.max(this.shake, 0.045);
     }
 
     if (p.climbing) this.prompt = "E — let go";
+    else if (holdingBomb) this.prompt = "CLICK — THROW THE BIG BOMB (run away after!)   E — set it down";
     else if (holdingCan) this.prompt = "CLICK — hurl the trash can!   E — set it down";
+    else if (this.nearBomb()) this.prompt = "E — grab the BIG BOMB!";
     else if (this.nearestCan(p.pos, 1.7)) this.prompt = "E — pick up trash can";
     else if (this.nearCageWall(p) && p.pos.y < CAGE_H - 0.3) this.prompt = "E — climb the cage";
     else this.prompt = "";
@@ -1410,7 +1641,7 @@ export class PaintballEngine {
           const dx = b.pos.x - f.pos.x;
           const dz = b.pos.z - f.pos.z;
           if (dx * dx + dz * dz < hr * hr && Math.abs(b.pos.y - cy) < 0.25) {
-            this.damage(f, b.owner, b.dmg, b.pos, false);
+            this.damage(f, b.owner, b.dmg, b.pos, "ball");
             this.addBurst(b.pos, new THREE.Vector3(0, 1, 0), b.color);
             dead = true;
             exploded = !!b.explosive;
@@ -1511,7 +1742,7 @@ export class PaintballEngine {
       if (!f.alive || f.team === owner.team) continue;
       const d = Math.hypot(f.pos.x - pos.x, (f.pos.y + 1) - pos.y, f.pos.z - pos.z);
       if (d < radius) {
-        this.damage(f, owner, Math.round(dmg * (1 - (d / radius) * 0.5)), new THREE.Vector3(f.pos.x, f.pos.y + 1.1, f.pos.z), false);
+        this.damage(f, owner, Math.round(dmg * (1 - (d / radius) * 0.5)), new THREE.Vector3(f.pos.x, f.pos.y + 1.1, f.pos.z), "ball");
       }
     }
   }
@@ -1617,7 +1848,7 @@ export class PaintballEngine {
             if (dx * dx + dz * dz < hr * hr && c.pos.y > f.pos.y - 0.3 && c.pos.y < f.pos.y + 1.9 * f.scaleCur) {
               const attacker = c.thrower ?? f;
               if (attacker.team !== f.team || attacker === f) {
-                this.damage(f, attacker, CAN_DMG, c.pos.clone().setY(f.pos.y + 1.2), true);
+                this.damage(f, attacker, CAN_DMG, c.pos.clone().setY(f.pos.y + 1.2), "can");
                 this.addBurst(c.pos, new THREE.Vector3(0, 1, 0), this.paintColor(attacker.team));
                 this.shake = Math.max(this.shake, 0.35);
                 c.vel.multiplyScalar(-0.25);
@@ -1714,6 +1945,7 @@ export class PaintballEngine {
       time: Math.max(0, Math.ceil(this.timeLeft)),
       prompt: this.prompt,
       carrying: this.cans.some((c) => c.held === p),
+      carryingBomb: this.bomb.state === "held" && this.bomb.holder === p,
       dead: !p.alive,
       respawnIn: p.alive ? 0 : Math.max(0, RESPAWN_T - p.deadT),
       onRoof: p.pos.y > CAGE_H - 0.6 && Math.abs(p.pos.x) < CAGE_HALF + 0.5 && Math.abs(p.pos.z) < CAGE_HALF + 0.5,
@@ -1744,6 +1976,7 @@ export class PaintballEngine {
       this.updateNades(dt);
       this.updateSmokes(dt);
       this.updateCans(dt);
+      this.updateBomb(dt);
       this.updatePickups(dt);
       this.updateFx(dt);
       this.updateCamera(dt);

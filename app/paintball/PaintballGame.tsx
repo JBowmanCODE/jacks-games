@@ -12,9 +12,14 @@ interface FeedLine {
 }
 
 const EMPTY_HUD: HudState = {
-  hp: 100, shield: 0, red: 0, blue: 0, time: 300, prompt: "", carrying: false, dead: false, respawnIn: 0,
-  onRoof: false, weapon: "Splat Marker", weaponIcon: "🔫", gPaint: 0, gSmoke: 0, fx: [],
+  hp: 100, shield: 0, red: 0, blue: 0, time: 300, prompt: "", carrying: false, carryingBomb: false,
+  dead: false, respawnIn: 0, onRoof: false, weapon: "Splat Marker", weaponIcon: "🔫", gPaint: 0, gSmoke: 0, fx: [],
 };
+
+interface Praise {
+  id: number;
+  text: string;
+}
 
 export default function PaintballGame() {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -26,6 +31,7 @@ export default function PaintballGame() {
   const [phase, setPhaseState] = useState<Phase>("menu");
   const [hud, setHud] = useState<HudState>(EMPTY_HUD);
   const [feed, setFeed] = useState<FeedLine[]>([]);
+  const [praises, setPraises] = useState<Praise[]>([]);
   const [flash, setFlash] = useState(0);
   const [result, setResult] = useState<{ winner: string; red: number; blue: number } | null>(null);
   const [isTouch, setIsTouch] = useState(false);
@@ -56,6 +62,11 @@ export default function PaintballGame() {
       onDamage: () => {
         setFlash(1);
         setTimeout(() => setFlash(0), 220);
+      },
+      onPraise: (text) => {
+        const id = ++feedId.current;
+        setPraises((p) => [...p.slice(-2), { id, text }]);
+        setTimeout(() => setPraises((p) => p.filter((x) => x.id !== id)), 2200);
       },
     });
     engineRef.current = engine;
@@ -195,6 +206,11 @@ export default function PaintballGame() {
               🗑️ TRASH CAN ARMED
             </div>
           )}
+          {hud.carryingBomb && (
+            <div className="pointer-events-none absolute left-1/2 top-14 -translate-x-1/2 animate-pulse font-mono text-base font-black text-red-400 drop-shadow">
+              💣 BIG BOMB ARMED — THROW IT AND RUN!!
+            </div>
+          )}
           {/* kill feed */}
           <div className="pointer-events-none absolute right-3 top-3 flex flex-col items-end gap-1">
             {feed.map((l) => (
@@ -208,6 +224,19 @@ export default function PaintballGame() {
               </div>
             ))}
           </div>
+          {/* kill praise alerts */}
+          <div className="pointer-events-none absolute right-5 top-28 flex flex-col items-end gap-2">
+            {praises.map((p) => (
+              <div
+                key={p.id}
+                className="-rotate-2 text-3xl font-black italic tracking-wide text-yellow-300 drop-shadow-[0_3px_0_rgba(0,0,0,0.7)]"
+                style={{ animation: "pbpop 0.35s ease-out" }}
+              >
+                {p.text}
+              </div>
+            ))}
+          </div>
+          <style>{`@keyframes pbpop { 0% { transform: scale(0.3) rotate(-8deg); opacity: 0; } 60% { transform: scale(1.25) rotate(-2deg); } 100% { transform: scale(1) rotate(-2deg); opacity: 1; } }`}</style>
           {/* death overlay */}
           {hud.dead && (
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center bg-red-950/40">
@@ -257,7 +286,9 @@ export default function PaintballGame() {
           <p className="max-w-md text-xs text-lime-100/70">
             Hunt for glowing pickups: <b className="text-yellow-300">10 upgrade weapons</b> (bazooka, minigun,
             homing hornet…) and <b className="text-cyan-300">crazy skills</b> — speed boost, GIANT mode, tiny mode,
-            invincibility, moon boots and more!
+            invincibility, moon boots and more! Eat a <b className="text-amber-300">🫓 Colombian arepa</b> to heal
+            back to 100%. And on top of the cage sits the <b className="text-red-400">💣 BIG BOMB</b> — it splats
+            EVERYONE near the blast, even your own team. Throw it and RUN!
           </p>
           {isTouch && (
             <p className="max-w-sm rounded-lg bg-yellow-500/20 px-3 py-2 text-xs text-yellow-200">
