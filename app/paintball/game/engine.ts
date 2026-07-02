@@ -428,7 +428,11 @@ export class PaintballEngine {
   }
 
   private makeFighter(team: 0 | 1, name: string, idx: number, isPlayer: boolean): Fighter {
-    const rig = createHumanoid(team === 0 ? RED : BLUE, idx + team * 17 + 3);
+    const rig = createHumanoid(
+      team === 0 ? RED : BLUE,
+      idx + team * 17 + 3,
+      isPlayer ? { hair: "#a97c50", backName: "JACK", backNumber: "4" } : undefined
+    );
     this.scene.add(rig.group);
     const pos = this.spawnPoint(team, idx);
     rig.group.position.copy(pos);

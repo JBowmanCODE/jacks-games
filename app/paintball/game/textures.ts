@@ -216,6 +216,34 @@ export function skyTexture(): THREE.CanvasTexture {
   return t;
 }
 
+/** Jersey back with player name and number, like a sports shirt. */
+export function jerseyBackTexture(teamColor: string, name: string, num: string): THREE.CanvasTexture {
+  const { c, ctx } = makeCanvas(128, 160);
+  ctx.fillStyle = teamColor;
+  ctx.fillRect(0, 0, 128, 160);
+  // subtle fabric shading
+  const grad = ctx.createLinearGradient(0, 0, 0, 160);
+  grad.addColorStop(0, "rgba(255,255,255,0.10)");
+  grad.addColorStop(1, "rgba(0,0,0,0.18)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 128, 160);
+  ctx.fillStyle = "#ffffff";
+  ctx.strokeStyle = "rgba(0,0,0,0.35)";
+  ctx.textAlign = "center";
+  ctx.lineWidth = 3;
+  ctx.font = "bold 34px Arial";
+  ctx.textBaseline = "middle";
+  ctx.strokeText(name, 64, 38);
+  ctx.fillText(name, 64, 38);
+  ctx.font = "bold 78px Arial";
+  ctx.strokeText(num, 64, 105);
+  ctx.fillText(num, 64, 105);
+  const t = toTexture(c, 1);
+  t.wrapS = THREE.ClampToEdgeWrapping;
+  t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
+}
+
 /** Soft radial glow for muzzle flashes and pickups. */
 export function glowTexture(): THREE.CanvasTexture {
   const { c, ctx } = makeCanvas(64, 64);

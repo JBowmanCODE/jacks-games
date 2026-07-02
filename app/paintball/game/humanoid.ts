@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { faceTexture, camoTexture } from "./textures";
+import { faceTexture, camoTexture, jerseyBackTexture } from "./textures";
 
 export interface Humanoid {
   /** Root group, origin at feet. */
@@ -61,18 +61,27 @@ function paintballMarker(): { gun: THREE.Group; muzzle: THREE.Object3D } {
   return { gun, muzzle };
 }
 
+export interface HumanoidOptions {
+  /** Override hair colour (CSS colour string). */
+  hair?: string;
+  /** Name printed across the back of the vest. */
+  backName?: string;
+  /** Number printed under the name. */
+  backNumber?: string;
+}
+
 /**
  * Builds an articulated ~1.8m human paintball player.
  * seed drives skin tone / hair so teams look like different people.
  */
-export function createHumanoid(teamColor: number, seed: number): Humanoid {
+export function createHumanoid(teamColor: number, seed: number, opts?: HumanoidOptions): Humanoid {
   const rnd = (n: number) => {
     // deterministic per-seed variety
     const x = Math.sin(seed * 127.1 + n * 311.7) * 43758.5453;
     return x - Math.floor(x);
   };
   const skin = SKINS[Math.floor(rnd(1) * SKINS.length)];
-  const hair = HAIRS[Math.floor(rnd(2) * HAIRS.length)];
+  const hair = opts?.hair ?? HAIRS[Math.floor(rnd(2) * HAIRS.length)];
   const skinMat = new THREE.MeshStandardMaterial({ color: skin, roughness: 0.75 });
   const jerseyMat = new THREE.MeshStandardMaterial({ color: teamColor, roughness: 0.8 });
   const jerseyDark = new THREE.MeshStandardMaterial({
@@ -117,8 +126,18 @@ export function createHumanoid(teamColor: number, seed: number): Humanoid {
   chest.position.y = 0.3;
   chest.castShadow = true;
   torso.add(chest);
-  // tactical vest
-  const vest = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.3, 0.3), jerseyDark);
+  // tactical vest — the back face can carry a name and number
+  let vestMats: THREE.Material | THREE.Material[] = jerseyDark;
+  if (opts?.backName) {
+    const darkHex = "#" + new THREE.Color(teamColor).multiplyScalar(0.55).getHexString();
+    const backMat = new THREE.MeshStandardMaterial({
+      map: jerseyBackTexture(darkHex, opts.backName, opts.backNumber ?? ""),
+      roughness: 0.8,
+    });
+    // box material order: +x, -x, +y, -y, +z(front/face side), -z(back)
+    vestMats = [jerseyDark, jerseyDark, jerseyDark, jerseyDark, jerseyDark, backMat];
+  }
+  const vest = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.3, 0.3), vestMats);
   vest.position.y = 0.34;
   torso.add(vest);
   const waist = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.14, 0.22), pantsMat);
