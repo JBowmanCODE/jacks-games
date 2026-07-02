@@ -83,8 +83,8 @@ const games = [
   },
   {
     href: "/paintball",
-    title: "Paintball",
-    description: "5v5 paintball! Capture zones, grab better weapons, throw paint and smoke grenades!",
+    title: "Paintball Jungle Rumble",
+    description: "3D 5v5 paintball in an overgrown jungle! Climb the steel cage ring and throw trash cans off the top!",
     emoji: "🎨",
     color: "from-fuchsia-900 to-fuchsia-700",
     border: "border-fuchsia-800",
