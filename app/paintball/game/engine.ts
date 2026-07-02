@@ -1061,8 +1061,39 @@ export class PaintballEngine {
     this.smokes.push({ group, pos: pos.clone(), life: 14, maxLife: 14, radius: 3.6 });
   }
 
-  private losBlockedSmoky(ax: number, az: number, bx: number, bz: number): boolean {
+  /** 2D segment intersection; returns t along a→b or null. */
+  private segHit2D(
+    ax: number, az: number, bx: number, bz: number,
+    x1: number, z1: number, x2: number, z2: number
+  ): number | null {
+    const rx = bx - ax;
+    const rz = bz - az;
+    const sx = x2 - x1;
+    const sz = z2 - z1;
+    const denom = rx * sz - rz * sx;
+    if (Math.abs(denom) < 1e-9) return null;
+    const t = ((x1 - ax) * sz - (z1 - az) * sx) / denom;
+    const u = ((x1 - ax) * rz - (z1 - az) * rx) / denom;
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : null;
+  }
+
+  /** Cage walls block sight/shots between two LOW points; roof-height fighters are exposed. */
+  private cageBlocks(ax: number, az: number, ay: number, bx: number, bz: number, by: number): boolean {
+    if (ay > CAGE_H - 0.6 || by > CAGE_H - 0.6) return false;
+    for (const w of this.world.walls) {
+      if (!w.cage) continue;
+      const t = this.segHit2D(ax, az, bx, bz, w.x1, w.z1, w.x2, w.z2);
+      if (t !== null) {
+        const yAt = ay + (by - ay) * t;
+        if (yAt > w.minY && yAt < w.maxY) return true;
+      }
+    }
+    return false;
+  }
+
+  private losBlockedSmoky(ax: number, az: number, ay: number, bx: number, bz: number, by: number): boolean {
     if (this.world.losBlocked(ax, az, bx, bz)) return true;
+    if (this.cageBlocks(ax, az, ay + 1.4, bx, bz, by + 1.4)) return true;
     for (const s of this.smokes) {
       const dx = bx - ax;
       const dz = bz - az;
@@ -1504,7 +1535,7 @@ export class PaintballEngine {
     for (const e of this.fighters) {
       if (e.team === f.team || !e.alive) continue;
       const d = f.pos.distanceTo(e.pos);
-      if (d < bd && !this.losBlockedSmoky(f.pos.x, f.pos.z, e.pos.x, e.pos.z)) {
+      if (d < bd && !this.losBlockedSmoky(f.pos.x, f.pos.z, f.pos.y, e.pos.x, e.pos.z, e.pos.y)) {
         bd = d;
         best = e;
       }
@@ -1732,6 +1763,9 @@ export class PaintballEngine {
           b.vel.normalize().lerp(want, Math.min(1, dt * 4)).normalize().multiplyScalar(speed);
         }
       }
+      const prevX = b.pos.x;
+      const prevY = b.pos.y;
+      const prevZ = b.pos.z;
       b.pos.addScaledVector(b.vel, dt);
       b.mesh.position.copy(b.pos);
       // stretch along velocity so shots read as tracers
@@ -1741,6 +1775,48 @@ export class PaintballEngine {
 
       let dead = b.life <= 0 || Math.abs(b.pos.x) > ARENA + 30 || Math.abs(b.pos.z) > ARENA + 30;
       let exploded = false;
+
+      if (!dead) {
+        // chain-link cage blocks paint — inside the ring is cover (swept so fast shots can't tunnel)
+        for (const w of this.world.walls) {
+          if (!w.cage) continue;
+          const t = this.segHit2D(prevX, prevZ, b.pos.x, b.pos.z, w.x1, w.z1, w.x2, w.z2);
+          if (t === null) continue;
+          const yAt = prevY + (b.pos.y - prevY) * t;
+          if (yAt <= w.minY || yAt >= w.maxY) continue;
+          const hx = prevX + (b.pos.x - prevX) * t;
+          const hz = prevZ + (b.pos.z - prevZ) * t;
+          let nx = w.z2 - w.z1;
+          let nz = -(w.x2 - w.x1);
+          const nl = Math.hypot(nx, nz) || 1;
+          nx /= nl;
+          nz /= nl;
+          if (nx * (prevX - hx) + nz * (prevZ - hz) < 0) {
+            nx = -nx;
+            nz = -nz;
+          }
+          this.addDecal(new THREE.Vector3(hx, yAt, hz), new THREE.Vector3(nx, 0, nz), b.color);
+          this.addBurst(new THREE.Vector3(hx, yAt, hz), new THREE.Vector3(nx, 0.3, nz).normalize(), b.color);
+          this.sfx.splat();
+          dead = true;
+          exploded = !!b.explosive;
+          break;
+        }
+        // roof panel blocks shots from above/below
+        if (!dead && (prevY - CAGE_H) * (b.pos.y - CAGE_H) < 0) {
+          const t = (CAGE_H - prevY) / (b.pos.y - prevY);
+          const hx = prevX + (b.pos.x - prevX) * t;
+          const hz = prevZ + (b.pos.z - prevZ) * t;
+          if (Math.abs(hx) <= CAGE_HALF && Math.abs(hz) <= CAGE_HALF) {
+            const ny = prevY > CAGE_H ? 1 : -1;
+            this.addDecal(new THREE.Vector3(hx, CAGE_H, hz), new THREE.Vector3(0, ny, 0), b.color);
+            this.addBurst(new THREE.Vector3(hx, CAGE_H + ny * 0.05, hz), new THREE.Vector3(0, ny, 0), b.color);
+            this.sfx.splat();
+            dead = true;
+            exploded = !!b.explosive;
+          }
+        }
+      }
 
       if (!dead) {
         for (const f of this.fighters) {

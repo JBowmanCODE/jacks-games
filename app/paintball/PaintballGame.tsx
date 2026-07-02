@@ -270,7 +270,8 @@ export default function PaintballGame() {
           <h2 className="-mt-3 text-2xl font-black tracking-[0.35em] text-white/90">JUNGLE RUMBLE</h2>
           <p className="max-w-md text-sm text-lime-100/80">
             5v5 paintball deep in an overgrown jungle. A steel cage ring sits in the clearing —
-            fight inside it, <b>climb on top of it</b>, and hurl <b>trash cans</b> off the roof.
+            the chain-link <b>blocks paint</b>, so duck inside for cover (watch the door!),
+            <b> climb on top</b> to snipe, and hurl <b>trash cans</b> off the roof.
             Most splats in 10 minutes wins!
           </p>
           <div className="grid max-w-md grid-cols-2 gap-x-6 gap-y-1 rounded-xl bg-black/40 p-4 text-left font-mono text-xs text-white/80">
