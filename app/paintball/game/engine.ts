@@ -140,8 +140,17 @@ export interface EngineCallbacks {
   onPraise(text: string): void;
 }
 
+interface HpBar {
+  sprite: THREE.Sprite;
+  tex: THREE.CanvasTexture;
+  ctx: CanvasRenderingContext2D;
+  lastHp: number;
+  lastShield: number;
+}
+
 interface Fighter {
   rig: Humanoid;
+  hpBar: HpBar;
   team: 0 | 1;
   name: string;
   pos: THREE.Vector3;
@@ -473,6 +482,41 @@ export class PaintballEngine {
     return new THREE.Vector3(x + (team === 0 ? 1 : -1) * (idx % 2), 0, (idx - 2) * 2.2);
   }
 
+  private makeHpBar(rig: Humanoid): HpBar {
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 12;
+    const ctx = canvas.getContext("2d")!;
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const sprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false })
+    );
+    sprite.scale.set(0.95, 0.18, 1);
+    sprite.position.y = 2.14;
+    rig.group.add(sprite);
+    const bar: HpBar = { sprite, tex, ctx, lastHp: -1, lastShield: -1 };
+    this.drawHpBar(bar, 100, 0);
+    return bar;
+  }
+
+  private drawHpBar(bar: HpBar, hp: number, shield: number) {
+    const ctx = bar.ctx;
+    ctx.clearRect(0, 0, 64, 12);
+    ctx.fillStyle = "rgba(0,0,0,0.4)";
+    ctx.fillRect(0, 0, 64, 12);
+    const w = (Math.max(0, hp) / 100) * 60;
+    ctx.fillStyle = hp > 60 ? "rgba(74,222,128,0.85)" : hp > 30 ? "rgba(250,204,21,0.85)" : "rgba(239,68,68,0.9)";
+    ctx.fillRect(2, 2, w, shield > 0 ? 5 : 8);
+    if (shield > 0) {
+      ctx.fillStyle = "rgba(56,189,248,0.9)";
+      ctx.fillRect(2, 8, (Math.min(100, shield) / 100) * 60, 2);
+    }
+    bar.tex.needsUpdate = true;
+    bar.lastHp = hp;
+    bar.lastShield = shield;
+  }
+
   private makeFighter(team: 0 | 1, name: string, idx: number, isPlayer: boolean): Fighter {
     const rig = createHumanoid(
       team === 0 ? RED : BLUE,
@@ -485,7 +529,7 @@ export class PaintballEngine {
     const yaw = team === 0 ? Math.PI / 2 : -Math.PI / 2;
     rig.group.rotation.y = yaw;
     return {
-      rig, team, name,
+      rig, hpBar: this.makeHpBar(rig), team, name,
       pos, vel: new THREE.Vector3(),
       yaw, pitch: 0, hp: 100, shield: 0, alive: true, deadT: 0,
       walkPhase: 0, speed01: 0, isPlayer,
@@ -1581,6 +1625,11 @@ export class PaintballEngine {
 
   private updateFighterVisual(f: Fighter, dt: number) {
     this.updateEffects(f, dt);
+    // own bar would fill the screen this close to the camera — the HUD covers it
+    f.hpBar.sprite.visible = f.alive && !f.isPlayer;
+    if (f.alive && (f.hpBar.lastHp !== Math.round(f.hp) || f.hpBar.lastShield !== Math.round(f.shield))) {
+      this.drawHpBar(f.hpBar, Math.round(f.hp), Math.round(f.shield));
+    }
     if (!f.alive) {
       f.deadT += dt;
       const k = Math.min(1, f.deadT / 0.4);
