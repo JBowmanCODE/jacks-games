@@ -122,40 +122,84 @@ export function trashCanTexture(): THREE.CanvasTexture {
   return toTexture(c, 1);
 }
 
-/** Human face: eyes, brows, mouth on skin tone. */
-export function faceTexture(skin: string): THREE.CanvasTexture {
+export type FaceExpression = "normal" | "cute" | "angry" | "silly";
+
+/** Human face: eyes, brows, mouth on skin tone, with optional expression. */
+export function faceTexture(skin: string, expr: FaceExpression = "normal"): THREE.CanvasTexture {
   const { c, ctx } = makeCanvas(128, 128);
   ctx.fillStyle = skin;
   ctx.fillRect(0, 0, 128, 128);
-  // eyes
+  const eyeW = expr === "cute" ? 13 : 9;
+  const eyeH = expr === "cute" ? 10 : 6;
+  const pupil = expr === "cute" ? 5.5 : 3.5;
   for (const ex of [44, 84]) {
+    const inward = ex < 64 ? 1 : -1; // toward the nose
     ctx.fillStyle = "#fff";
     ctx.beginPath();
-    ctx.ellipse(ex, 58, 9, 6, 0, 0, Math.PI * 2);
+    ctx.ellipse(ex, 58, eyeW, eyeH, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = "#3a2a1a";
     ctx.beginPath();
-    ctx.arc(ex, 58, 3.5, 0, Math.PI * 2);
+    ctx.arc(ex, 58, pupil, 0, Math.PI * 2);
     ctx.fill();
+    if (expr === "cute") {
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(ex - 2, 55, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.strokeStyle = "rgba(60,40,25,0.9)";
-    ctx.lineWidth = 3;
+    ctx.lineWidth = expr === "angry" ? 5 : 3;
     ctx.beginPath();
-    ctx.moveTo(ex - 10, 46);
-    ctx.lineTo(ex + 10, 44);
+    if (expr === "angry") {
+      // slanted down toward the nose
+      ctx.moveTo(ex - 11 * inward, 40);
+      ctx.lineTo(ex + 10 * inward, 51);
+    } else {
+      ctx.moveTo(ex - 10, 46 - (expr === "cute" ? 3 : 0));
+      ctx.lineTo(ex + 10, 44 - (expr === "cute" ? 3 : 0));
+    }
     ctx.stroke();
   }
-  // nose + mouth
+  // chubby rosy cheeks
+  if (expr === "cute") {
+    ctx.fillStyle = "rgba(255,120,130,0.4)";
+    for (const cx of [32, 96]) {
+      ctx.beginPath();
+      ctx.arc(cx, 80, 11, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  // nose
   ctx.strokeStyle = "rgba(0,0,0,0.25)";
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(64, 62);
   ctx.lineTo(64, 76);
   ctx.stroke();
+  // mouth
   ctx.strokeStyle = "#7a4238";
   ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.arc(64, 86, 12, 0.15 * Math.PI, 0.85 * Math.PI);
+  if (expr === "angry") {
+    ctx.arc(64, 100, 12, 1.15 * Math.PI, 1.85 * Math.PI);
+  } else {
+    ctx.arc(64, 86, expr === "cute" ? 14 : 12, 0.15 * Math.PI, 0.85 * Math.PI);
+  }
   ctx.stroke();
+  if (expr === "silly") {
+    // tongue sticking out
+    ctx.fillStyle = "#e56b78";
+    ctx.beginPath();
+    ctx.roundRect(56, 94, 16, 14, 6);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.2)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(64, 96);
+    ctx.lineTo(64, 106);
+    ctx.stroke();
+  }
   return toTexture(c, 1);
 }
 
@@ -231,7 +275,13 @@ export function jerseyBackTexture(teamColor: string, name: string, num: string):
   ctx.strokeStyle = "rgba(0,0,0,0.35)";
   ctx.textAlign = "center";
   ctx.lineWidth = 3;
-  ctx.font = "bold 34px Arial";
+  // shrink to fit long names like JIMMY THE FISH
+  let size = 34;
+  ctx.font = `bold ${size}px Arial`;
+  while (ctx.measureText(name).width > 116 && size > 11) {
+    size -= 2;
+    ctx.font = `bold ${size}px Arial`;
+  }
   ctx.textBaseline = "middle";
   ctx.strokeText(name, 64, 38);
   ctx.fillText(name, 64, 38);

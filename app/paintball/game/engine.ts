@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { createHumanoid, poseHumanoid, addBodyPaint, clearBodyPaint, Humanoid } from "./humanoid";
+import { createHumanoid, poseHumanoid, addBodyPaint, clearBodyPaint, Humanoid, HumanoidOptions } from "./humanoid";
 import { buildWorld, createTrashCan, WorldData, MAT_Y, APRON_HALF, CAGE_HALF, CAGE_H, ARENA } from "./world";
 import { splatTexture, glowTexture, emojiTexture } from "./textures";
 
@@ -23,8 +23,27 @@ const BLUE = 0x2f6fd9;
 const PAINT_RED = [0xff2255, 0xff5533, 0xff3388];
 const PAINT_BLUE = [0x22aaff, 0x3355ff, 0x00ddcc];
 
-const RED_NAMES = ["Jack", "Rex", "Maya", "Duke", "Zoe"];
-const BLUE_NAMES = ["Vince", "Kira", "Bruno", "Tess", "Axel"];
+interface RosterEntry {
+  name: string;
+  num: string;
+  opts?: HumanoidOptions;
+  baseScale?: number;
+}
+
+const RED_ROSTER: RosterEntry[] = [
+  { name: "Jack", num: "4", opts: { hair: "#a97c50" } },
+  { name: "Emma", num: "7", opts: { hair: "#b5762f", hairStyle: "bob" } },
+  { name: "Mama", num: "1", opts: { hair: "#141216", hairStyle: "ponytail" } },
+  { name: "Papa", num: "9", opts: { hair: "#c5c8ca" } },
+  { name: "Lil Fella", num: "0", opts: { hair: "#6e4a22", face: "cute", headScale: 1.32 }, baseScale: 0.72 },
+];
+const BLUE_ROSTER: RosterEntry[] = [
+  { name: "Jimmy the Fish", num: "11" },
+  { name: "Timmy 2 Toes", num: "2" },
+  { name: "Big Dave", num: "99", baseScale: 1.12 },
+  { name: "Angry Pete", num: "8", opts: { face: "angry" } },
+  { name: "Silly Sam", num: "5", opts: { face: "silly" } },
+];
 
 const PRAISE = [
   "Nice Going!",
@@ -170,6 +189,7 @@ interface Fighter {
   weapon: WeaponDef;
   fx: Map<SkillKey, number>;
   scaleCur: number;
+  baseScale: number;
   glow: THREE.Mesh | null;
   // bot brain
   wp: THREE.Vector3 | null;
@@ -471,8 +491,8 @@ export class PaintballEngine {
   // ================= setup =================
   private spawnTeams() {
     for (let i = 0; i < 5; i++) {
-      this.fighters.push(this.makeFighter(0, RED_NAMES[i], i, i === 0));
-      this.fighters.push(this.makeFighter(1, BLUE_NAMES[i], i, false));
+      this.fighters.push(this.makeFighter(0, RED_ROSTER[i], i, i === 0));
+      this.fighters.push(this.makeFighter(1, BLUE_ROSTER[i], i, false));
     }
     this.player = this.fighters[0];
   }
@@ -517,24 +537,26 @@ export class PaintballEngine {
     bar.lastShield = shield;
   }
 
-  private makeFighter(team: 0 | 1, name: string, idx: number, isPlayer: boolean): Fighter {
-    const rig = createHumanoid(
-      team === 0 ? RED : BLUE,
-      idx + team * 17 + 3,
-      isPlayer ? { hair: "#a97c50", backName: "JACK", backNumber: "4" } : undefined
-    );
+  private makeFighter(team: 0 | 1, entry: RosterEntry, idx: number, isPlayer: boolean): Fighter {
+    const rig = createHumanoid(team === 0 ? RED : BLUE, idx + team * 17 + 3, {
+      ...entry.opts,
+      backName: entry.name.toUpperCase(),
+      backNumber: entry.num,
+    });
     this.scene.add(rig.group);
     const pos = this.spawnPoint(team, idx);
     rig.group.position.copy(pos);
     const yaw = team === 0 ? Math.PI / 2 : -Math.PI / 2;
     rig.group.rotation.y = yaw;
+    const baseScale = entry.baseScale ?? 1;
+    rig.group.scale.setScalar(baseScale);
     return {
-      rig, hpBar: this.makeHpBar(rig), team, name,
+      rig, hpBar: this.makeHpBar(rig), team, name: entry.name,
       pos, vel: new THREE.Vector3(),
       yaw, pitch: 0, hp: 100, shield: 0, alive: true, deadT: 0,
       walkPhase: 0, speed01: 0, isPlayer,
       climbing: false, grounded: true, fireCd: 0, aiming: isPlayer,
-      weapon: STARTER, fx: new Map(), scaleCur: 1, glow: null,
+      weapon: STARTER, fx: new Map(), scaleCur: baseScale, baseScale, glow: null,
       wp: null, path: [], thinkT: Math.random() * 0.3, strafe: 1,
       target: null, stuckT: 0, lastPos: pos.clone(), burst: 0,
     };
@@ -1302,7 +1324,7 @@ export class PaintballEngine {
       if (nt <= 0) f.fx.delete(k);
       else f.fx.set(k, nt);
     }
-    const targetScale = f.fx.has("big") ? 1.45 : f.fx.has("small") ? 0.62 : 1;
+    const targetScale = f.baseScale * (f.fx.has("big") ? 1.45 : f.fx.has("small") ? 0.62 : 1);
     f.scaleCur += (targetScale - f.scaleCur) * Math.min(1, dt * 6);
     f.rig.group.scale.setScalar(f.scaleCur);
     // invincibility glow

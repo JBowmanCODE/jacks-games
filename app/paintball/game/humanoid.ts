@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { faceTexture, camoTexture, jerseyBackTexture } from "./textures";
+import { faceTexture, camoTexture, jerseyBackTexture, FaceExpression } from "./textures";
 
 export interface Humanoid {
   /** Root group, origin at feet. */
@@ -64,6 +64,12 @@ function paintballMarker(): { gun: THREE.Group; muzzle: THREE.Object3D } {
 export interface HumanoidOptions {
   /** Override hair colour (CSS colour string). */
   hair?: string;
+  /** Hairstyle: default short cap, bob, or ponytail. */
+  hairStyle?: "short" | "bob" | "ponytail";
+  /** Face expression: cute (big eyes + chubby cheeks), angry, silly (tongue out). */
+  face?: FaceExpression;
+  /** Scale applied to the whole head (e.g. 1.3 for a big cute head). */
+  headScale?: number;
   /** Name printed across the back of the vest. */
   backName?: string;
   /** Number printed under the name. */
@@ -150,7 +156,7 @@ export function createHumanoid(teamColor: number, seed: number, opts?: HumanoidO
   const head = new THREE.Group();
   head.position.y = 0.68;
   torso.add(head);
-  const faceMat = new THREE.MeshStandardMaterial({ map: faceTexture(skin), roughness: 0.7 });
+  const faceMat = new THREE.MeshStandardMaterial({ map: faceTexture(skin, opts?.face ?? "normal"), roughness: 0.7 });
   const sideMat = skinMat;
   const skull = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.26, 0.24), [
     sideMat, sideMat, sideMat, sideMat, faceMat, sideMat,
@@ -158,13 +164,36 @@ export function createHumanoid(teamColor: number, seed: number, opts?: HumanoidO
   skull.position.y = 0.13;
   skull.castShadow = true;
   head.add(skull);
-  // hair cap
-  const hairMesh = new THREE.Mesh(
-    new THREE.BoxGeometry(0.24, 0.09, 0.26),
-    new THREE.MeshStandardMaterial({ color: hair, roughness: 0.95 })
-  );
+  // hair
+  const hairMat = new THREE.MeshStandardMaterial({ color: hair, roughness: 0.95 });
+  const style = opts?.hairStyle ?? "short";
+  const hairMesh = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.09, 0.26), hairMat);
   hairMesh.position.set(0, 0.25, -0.01);
   head.add(hairMesh);
+  if (style === "bob") {
+    // panels down the sides and back of the head
+    for (const sx of [-1, 1]) {
+      const side = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.2, 0.24), hairMat);
+      side.position.set(0.128 * sx, 0.12, -0.02);
+      head.add(side);
+    }
+    const back = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.2, 0.04), hairMat);
+    back.position.set(0, 0.12, -0.135);
+    head.add(back);
+    // fringe
+    const fringe = new THREE.Mesh(new THREE.BoxGeometry(0.23, 0.05, 0.03), hairMat);
+    fringe.position.set(0, 0.245, 0.125);
+    head.add(fringe);
+  } else if (style === "ponytail") {
+    const band = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 5), hairMat);
+    band.position.set(0, 0.22, -0.15);
+    head.add(band);
+    const tail = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.26, 3, 6), hairMat);
+    tail.position.set(0, 0.05, -0.19);
+    tail.rotation.x = 0.28;
+    head.add(tail);
+  }
+  if (opts?.headScale) head.scale.setScalar(opts.headScale);
   // paintball goggles strap + lens
   const lens = new THREE.Mesh(
     new THREE.BoxGeometry(0.2, 0.07, 0.03),
