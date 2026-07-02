@@ -244,6 +244,30 @@ export function splatTexture(): THREE.CanvasTexture {
   return t;
 }
 
+/** Classic white football with black pentagon patches. */
+export function soccerTexture(): THREE.CanvasTexture {
+  const { c, ctx } = makeCanvas(128, 128);
+  ctx.fillStyle = "#f2f2ee";
+  ctx.fillRect(0, 0, 128, 128);
+  ctx.fillStyle = "#151515";
+  const spots: [number, number][] = [
+    [20, 24], [70, 14], [116, 30], [42, 64], [94, 70], [14, 90], [64, 108], [112, 104],
+  ];
+  for (const [x, y] of spots) {
+    ctx.beginPath();
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
+      const px = x + Math.cos(a) * 13;
+      const py = y + Math.sin(a) * 13;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+  return toTexture(c, 1);
+}
+
 /** Sky gradient dome texture. */
 export function skyTexture(): THREE.CanvasTexture {
   const { c, ctx } = makeCanvas(16, 256);

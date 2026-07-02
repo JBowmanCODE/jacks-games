@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { createHumanoid, poseHumanoid, addBodyPaint, clearBodyPaint, Humanoid, HumanoidOptions } from "./humanoid";
 import { buildWorld, createTrashCan, WorldData, MAT_Y, APRON_HALF, CAGE_HALF, CAGE_H, ARENA } from "./world";
-import { splatTexture, glowTexture, emojiTexture } from "./textures";
+import { splatTexture, glowTexture, emojiTexture, soccerTexture } from "./textures";
 
 // ---------- tuning ----------
 const PLAYER_R = 0.32;
@@ -66,10 +66,12 @@ const PRAISE_BIG = [
   "Now THAT'S paint!",
 ];
 
-type DamageCause = "ball" | "can" | "bomb";
+type DamageCause = "ball" | "can" | "bomb" | "spear";
 
 const BOMB_RESPAWN = 120;
 const BOMB_RADIUS = 6;
+const RING_CAMP_LIMIT = 20; // seconds in the ring before the Enforcer comes
+const ROPE_LINE = 2.9; // rope bounce boundary on the mat
 
 // ---------- weapons ----------
 export interface WeaponDef {
@@ -191,6 +193,9 @@ interface Fighter {
   scaleCur: number;
   baseScale: number;
   glow: THREE.Mesh | null;
+  kb: THREE.Vector3; // knockback impulse (rope bounces, spears)
+  ringT: number; // time spent camping in the ring
+  crouchK: number; // 0..1 crouch blend
   // bot brain
   wp: THREE.Vector3 | null;
   path: THREE.Vector3[];
@@ -245,6 +250,33 @@ interface Smoke {
   life: number;
   maxLife: number;
   radius: number;
+}
+
+interface CatState {
+  group: THREE.Group;
+  pos: THREE.Vector3;
+  held: boolean;
+  wander: THREE.Vector3 | null;
+  thinkT: number;
+  meowCd: number;
+  walkT: number;
+}
+
+interface Football {
+  mesh: THREE.Mesh;
+  pos: THREE.Vector3;
+  vel: THREE.Vector3;
+}
+
+interface WrestlerState {
+  rig: Humanoid;
+  state: "bounce" | "charge" | "taunt";
+  t: number;
+  target: Fighter;
+  pos: THREE.Vector3;
+  dir: THREE.Vector3;
+  walkPhase: number;
+  hit: boolean;
 }
 
 interface BombState {
@@ -392,6 +424,44 @@ class Sfx {
     f.connect(this.env(0.12, 0.8));
     n.start();
   }
+  meow() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const o = ctx.createOscillator();
+    o.type = "sawtooth";
+    o.frequency.setValueAtTime(620, ctx.currentTime);
+    o.frequency.linearRampToValueAtTime(880, ctx.currentTime + 0.12);
+    o.frequency.exponentialRampToValueAtTime(430, ctx.currentTime + 0.35);
+    const f = ctx.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.value = 1800;
+    o.connect(f);
+    f.connect(this.env(0.12, 0.35));
+    o.start();
+    o.stop(ctx.currentTime + 0.4);
+  }
+  boing() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const o = ctx.createOscillator();
+    o.type = "sine";
+    o.frequency.setValueAtTime(140, ctx.currentTime);
+    o.frequency.linearRampToValueAtTime(420, ctx.currentTime + 0.16);
+    o.connect(this.env(0.2, 0.2));
+    o.start();
+    o.stop(ctx.currentTime + 0.22);
+  }
+  kick() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const n = this.noise(0.08);
+    const f = ctx.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.value = 350;
+    n.connect(f);
+    f.connect(this.env(0.3, 0.08));
+    n.start();
+  }
   pickup() {
     if (!this.ctx) return;
     const ctx = this.ctx;
@@ -450,6 +520,9 @@ export class PaintballEngine {
   private bomb!: BombState;
   private bombHome = new THREE.Vector3(0, CAGE_H + 0.04, 0);
   private bubble: { sprite: THREE.Sprite; t: number } | null = null;
+  private cat!: CatState;
+  private footballs: Football[] = [];
+  private wrestler: WrestlerState | null = null;
 
   private keys = new Set<string>();
   private mouseDown = false;
@@ -484,6 +557,8 @@ export class PaintballEngine {
     this.spawnCans();
     this.spawnPickups();
     this.spawnBomb();
+    this.spawnCat();
+    this.spawnFootballs();
     this.bindInput();
     this.renderer.render(this.scene, this.camera);
   }
@@ -557,6 +632,7 @@ export class PaintballEngine {
       walkPhase: 0, speed01: 0, isPlayer,
       climbing: false, grounded: true, fireCd: 0, aiming: isPlayer,
       weapon: STARTER, fx: new Map(), scaleCur: baseScale, baseScale, glow: null,
+      kb: new THREE.Vector3(), ringT: 0, crouchK: 0,
       wp: null, path: [], thinkT: Math.random() * 0.3, strafe: 1,
       target: null, stuckT: 0, lastPos: pos.clone(), burst: 0,
     };
@@ -612,6 +688,180 @@ export class PaintballEngine {
         active: false, respawnT: 0.01, bobT: Math.random() * 6,
       };
       this.pickups.push(p);
+    }
+  }
+
+  /** Black-and-white cat with a black tail, based on the boss's real cat. */
+  private spawnCat() {
+    const group = new THREE.Group();
+    const white = new THREE.MeshStandardMaterial({ color: 0xf4f2ee, roughness: 0.9 });
+    const black = new THREE.MeshStandardMaterial({ color: 0x17181a, roughness: 0.95 });
+    // body (horizontal capsule)
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.26, 4, 8), white);
+    body.rotation.z = Math.PI / 2;
+    body.position.set(0, 0.19, 0);
+    body.castShadow = true;
+    group.add(body);
+    // big black patch on the back like the photo
+    const patch = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), black);
+    patch.scale.set(1.5, 0.7, 1.05);
+    patch.position.set(0.02, 0.27, 0);
+    group.add(patch);
+    const patch2 = new THREE.Mesh(new THREE.SphereGeometry(0.06, 7, 5), black);
+    patch2.scale.set(1.2, 0.8, 1);
+    patch2.position.set(-0.05, 0.14, 0.07);
+    group.add(patch2);
+    // head + black ear patch
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.095, 10, 8), white);
+    head.position.set(0.24, 0.27, 0);
+    head.castShadow = true;
+    group.add(head);
+    const headPatch = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), black);
+    headPatch.scale.set(0.9, 0.7, 0.9);
+    headPatch.position.set(0.22, 0.33, 0.04);
+    group.add(headPatch);
+    for (const s of [-1, 1]) {
+      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.07, 4), s === 1 ? black : white);
+      ear.position.set(0.24, 0.37, 0.05 * s);
+      group.add(ear);
+    }
+    // eyes + pink nose
+    for (const s of [-1, 1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.014, 6, 5), new THREE.MeshBasicMaterial({ color: 0x2a4d2a }));
+      eye.position.set(0.325, 0.29, 0.038 * s);
+      group.add(eye);
+    }
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.012, 6, 5), new THREE.MeshBasicMaterial({ color: 0xd98a94 }));
+    nose.position.set(0.34, 0.26, 0);
+    group.add(nose);
+    // black tail curving up
+    for (let i = 0; i < 3; i++) {
+      const seg = new THREE.Mesh(new THREE.CapsuleGeometry(0.024 - i * 0.004, 0.09, 3, 6), black);
+      seg.position.set(-0.24 - i * 0.035, 0.24 + i * 0.085, 0);
+      seg.rotation.z = 0.5 - i * 0.25;
+      group.add(seg);
+    }
+    // legs
+    for (const [lx, lz] of [[0.14, 0.06], [0.14, -0.06], [-0.12, 0.06], [-0.12, -0.06]] as [number, number][]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.14, 6), white);
+      leg.position.set(lx, 0.07, lz);
+      leg.castShadow = true;
+      group.add(leg);
+    }
+    group.position.set(8, 0, -7);
+    this.scene.add(group);
+    this.cat = { group, pos: new THREE.Vector3(8, 0, -7), held: false, wander: null, thinkT: 1, meowCd: 0, walkT: 0 };
+  }
+
+  private spawnFootballs() {
+    const tex = soccerTexture();
+    const spots = [
+      new THREE.Vector3(6, 0, 8),
+      new THREE.Vector3(-8, 0, -9),
+      new THREE.Vector3(14, 0, -3),
+      new THREE.Vector3(0, MAT_Y, 1.5),
+    ];
+    for (const p of spots) {
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.16, 14, 12),
+        new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 })
+      );
+      mesh.position.copy(p).setY(p.y + 0.16);
+      mesh.castShadow = true;
+      this.scene.add(mesh);
+      this.footballs.push({ mesh, pos: p.clone(), vel: new THREE.Vector3() });
+    }
+  }
+
+  // ================= the Enforcer =================
+  private summonWrestler(target: Fighter) {
+    const rig = createHumanoid(0xc98858, 77, { hair: "#181818", backName: "ENFORCER", backNumber: "1" });
+    rig.group.scale.set(1.5, 1.2, 1.5); // big and muscley
+    this.scene.add(rig.group);
+    // appear at the ropes on the far side of the target
+    const away = new THREE.Vector3(target.pos.x, 0, target.pos.z);
+    if (away.lengthSq() < 0.01) away.set(1, 0, 0);
+    away.normalize();
+    const pos = new THREE.Vector3(-away.x * (ROPE_LINE - 0.3), MAT_Y, -away.z * (ROPE_LINE - 0.3));
+    rig.group.position.copy(pos);
+    this.addBurst(pos.clone().setY(MAT_Y + 1.5), new THREE.Vector3(0, 1, 0), 0xffffff);
+    this.wrestler = { rig, state: "bounce", t: 0.55, target, pos, dir: new THREE.Vector3(), walkPhase: 0, hit: false };
+    this.sfx.boing();
+    this.cb.onKill(`💪 THE ENFORCER is coming for ${target.name}!`, true);
+  }
+
+  private updateWrestler(dt: number) {
+    const w = this.wrestler;
+    if (!w) return;
+    w.t -= dt;
+    if (w.state === "bounce") {
+      // rocking against the ropes, winding up
+      w.rig.group.rotation.y = Math.atan2(w.target.pos.x - w.pos.x, w.target.pos.z - w.pos.z);
+      w.rig.group.position.z = w.pos.z + Math.sin(w.t * 25) * 0.06;
+      poseHumanoid(w.rig, 0, 0, 0, false, false, 0.4);
+      if (w.t <= 0) {
+        w.state = "charge";
+        w.dir.set(w.target.pos.x - w.pos.x, 0, w.target.pos.z - w.pos.z).normalize();
+        w.t = 1.4;
+        this.sfx.whoosh();
+      }
+      return;
+    }
+    if (w.state === "charge") {
+      w.pos.addScaledVector(w.dir, 13 * dt);
+      w.walkPhase += 13 * dt * 2.4;
+      w.rig.group.position.copy(w.pos);
+      w.rig.group.rotation.y = Math.atan2(w.dir.x, w.dir.z);
+      poseHumanoid(w.rig, w.walkPhase, 1, 0, false, false, 0.25);
+      const t = w.target;
+      if (!w.hit && t.alive) {
+        const d = Math.hypot(t.pos.x - w.pos.x, t.pos.z - w.pos.z);
+        if (d < 1.0) {
+          w.hit = true;
+          t.kb.set(w.dir.x * 11, 0, w.dir.z * 11);
+          t.vel.y = 5.5;
+          this.damage(t, t, 55, new THREE.Vector3(t.pos.x, t.pos.y + 1.1, t.pos.z), "spear");
+          this.shake = Math.max(this.shake, 0.6);
+          this.sfx.boom();
+        }
+      }
+      // stop at the far ropes or when time is up
+      if (w.t <= 0 || Math.abs(w.pos.x) > CAGE_HALF - 0.4 || Math.abs(w.pos.z) > CAGE_HALF - 0.4) {
+        w.state = "taunt";
+        w.t = 1.1;
+      }
+      return;
+    }
+    // taunt: arms up flexing, then vanish
+    poseHumanoid(w.rig, w.t * 6, 0, 0, false, true);
+    if (w.t <= 0) {
+      this.addBurst(w.pos.clone().setY(MAT_Y + 1.5), new THREE.Vector3(0, 1, 0), 0xffffff);
+      this.scene.remove(w.rig.group);
+      this.wrestler = null;
+    }
+  }
+
+  private updateRingCamping(dt: number) {
+    for (const f of this.fighters) {
+      const inRing =
+        f.alive &&
+        Math.abs(f.pos.x) < APRON_HALF - 0.1 &&
+        Math.abs(f.pos.z) < APRON_HALF - 0.1 &&
+        f.pos.y > 0.9 &&
+        f.pos.y < CAGE_H - 1;
+      if (inRing) {
+        const before = f.ringT;
+        f.ringT += dt;
+        if (f.isPlayer && before < RING_CAMP_LIMIT - 5 && f.ringT >= RING_CAMP_LIMIT - 5) {
+          this.cb.onKill("⚠️ Ring camper detected! Get out before the ENFORCER arrives!", true);
+        }
+        if (f.ringT >= RING_CAMP_LIMIT && !this.wrestler) {
+          f.ringT = -3; // grace after the spear
+          this.summonWrestler(f);
+        }
+      } else {
+        f.ringT = Math.max(0, f.ringT - dt * 2);
+      }
     }
   }
 
@@ -767,7 +1017,7 @@ export class PaintballEngine {
 
   // ================= input =================
   private onKeyDown = (e: KeyboardEvent) => {
-    if (["KeyW", "KeyA", "KeyS", "KeyD", "Space", "ShiftLeft", "ShiftRight", "KeyE", "KeyG", "KeyH"].includes(e.code))
+    if (["KeyW", "KeyA", "KeyS", "KeyD", "Space", "ShiftLeft", "ShiftRight", "KeyE", "KeyG", "KeyH", "KeyC"].includes(e.code))
       e.preventDefault();
     this.keys.add(e.code);
     if (e.repeat) return;
@@ -855,6 +1105,24 @@ export class PaintballEngine {
     this.bomb.group.position.copy(this.bomb.pos);
     this.bomb.group.rotation.set(0, 0, 0);
     this.bomb.group.visible = true;
+    if (this.wrestler) {
+      this.scene.remove(this.wrestler.rig.group);
+      this.wrestler = null;
+    }
+    this.cat.held = false;
+    this.cat.pos.set(8, 0, -7);
+    this.cat.wander = null;
+    this.footballs.forEach((fb, i) => {
+      const spots = [
+        new THREE.Vector3(6, 0, 8),
+        new THREE.Vector3(-8, 0, -9),
+        new THREE.Vector3(14, 0, -3),
+        new THREE.Vector3(0, MAT_Y, 1.5),
+      ];
+      fb.pos.copy(spots[i]);
+      fb.vel.set(0, 0, 0);
+      fb.mesh.position.copy(fb.pos).setY(fb.pos.y + 0.16);
+    });
   }
 
   /** Debug/testing hook: place the player somewhere specific. */
@@ -936,6 +1204,22 @@ export class PaintballEngine {
       this.sfx.pickup();
       return;
     }
+    if (this.cat.held) {
+      this.cat.held = false;
+      this.cat.pos.set(
+        p.pos.x + Math.sin(p.yaw) * 0.8,
+        this.world.floorHeightAt(p.pos.x, p.pos.z, p.pos.y),
+        p.pos.z + Math.cos(p.yaw) * 0.8
+      );
+      this.cat.wander = null;
+      this.cat.thinkT = 4;
+      return;
+    }
+    if (this.nearCat()) {
+      this.cat.held = true;
+      this.sfx.meow();
+      return;
+    }
     const near = this.nearestCan(p.pos, 1.7);
     if (near && !near.held) {
       near.held = p;
@@ -946,6 +1230,15 @@ export class PaintballEngine {
       p.climbing = true;
       p.vel.set(0, 0, 0);
     }
+  }
+
+  private nearCat(): boolean {
+    const p = this.player;
+    return (
+      !this.cat.held &&
+      Math.hypot(this.cat.pos.x - p.pos.x, this.cat.pos.z - p.pos.z) < 1.8 &&
+      Math.abs(this.cat.pos.y - p.pos.y) < 1.6
+    );
   }
 
   private nearestCan(pos: THREE.Vector3, maxD: number): Can | null {
@@ -1137,10 +1430,12 @@ export class PaintballEngine {
       mesh.scale.setScalar(w.ballR);
       mesh.position.copy(origin);
       this.scene.add(mesh);
+      // crouching steadies your aim
+      const spread = w.spread * (1 - 0.5 * f.crouchK);
       const d = dir.clone();
-      d.x += (Math.random() - 0.5) * 2 * w.spread;
-      d.y += (Math.random() - 0.5) * 2 * w.spread;
-      d.z += (Math.random() - 0.5) * 2 * w.spread;
+      d.x += (Math.random() - 0.5) * 2 * spread;
+      d.y += (Math.random() - 0.5) * 2 * spread;
+      d.z += (Math.random() - 0.5) * 2 * spread;
       this.balls.push({
         pos: origin.clone(),
         vel: d.normalize().multiplyScalar(w.speed),
@@ -1215,7 +1510,9 @@ export class PaintballEngine {
           ? `${attacker.name} CRUSHED ${victim.name} with a trash can!`
           : cause === "bomb"
             ? `💥 ${attacker.name} BLEW UP ${victim.name}!`
-            : `${attacker.name} splatted ${victim.name}`;
+            : cause === "spear"
+              ? `💪 THE ENFORCER SPEARED ${victim.name}!!`
+              : `${attacker.name} splatted ${victim.name}`;
       this.cb.onKill(line, cause !== "ball");
       if (attacker.isPlayer && attacker !== victim) {
         const list = cause === "ball" ? PRAISE : PRAISE_BIG;
@@ -1252,6 +1549,9 @@ export class PaintballEngine {
     f.path = [];
     f.fx.clear();
     f.shield = 0;
+    f.kb.set(0, 0, 0);
+    f.ringT = 0;
+    f.crouchK = 0;
     f.rig.group.rotation.set(0, f.yaw, 0);
     f.rig.group.position.copy(f.pos);
     clearBodyPaint(f.rig);
@@ -1483,8 +1783,11 @@ export class PaintballEngine {
   private moveFighter(f: Fighter, dt: number, wishX: number, wishZ: number, speed: number) {
     const startX = f.pos.x;
     const startZ = f.pos.z;
-    let nx = f.pos.x + wishX * speed * dt;
-    let nz = f.pos.z + wishZ * speed * dt;
+    // knockback impulses (rope bounces, spears) decay quickly
+    let nx = f.pos.x + wishX * speed * dt + f.kb.x * dt;
+    let nz = f.pos.z + wishZ * speed * dt + f.kb.z * dt;
+    f.kb.multiplyScalar(Math.pow(0.03, dt));
+    if (f.kb.lengthSq() < 0.01) f.kb.set(0, 0, 0);
     [nx, nz] = this.resolveXZ(nx, nz, f.pos.y, PLAYER_R, f.pos.y + BODY_H);
     const fh = this.world.floorHeightAt(nx, nz, f.pos.y);
     if (fh - f.pos.y > STEP_UP) {
@@ -1690,11 +1993,29 @@ export class PaintballEngine {
         wz /= wl;
       }
       const sprint = this.keys.has("ShiftLeft") || this.keys.has("ShiftRight");
+      const crouching = this.keys.has("KeyC") && p.grounded;
+      p.crouchK += ((crouching ? 1 : 0) - p.crouchK) * Math.min(1, dt * 9);
+      const onMat = this.world.floorHeightAt(p.pos.x, p.pos.z, p.pos.y) === MAT_Y && p.pos.y <= MAT_Y + 0.05;
       if (this.keys.has("Space") && p.grounded) {
-        p.vel.y = JUMP_V * jumpMult;
+        // the ring floor is springy — jump higher off the mat
+        p.vel.y = JUMP_V * jumpMult * (onMat ? 1.35 : 1);
+        if (onMat) this.sfx.boing();
         p.grounded = false;
       }
-      this.moveFighter(p, dt, wx, wz, (sprint ? SPRINT : WALK) * speedMult);
+      const crouchMult = 1 - 0.55 * p.crouchK;
+      this.moveFighter(p, dt, wx, wz, (sprint && !crouching ? SPRINT : WALK) * speedMult * crouchMult);
+      // bounce off the ring ropes (the door lane is exempt so you can still walk out)
+      if (onMat && p.pos.y <= MAT_Y + 0.3) {
+        const overX = Math.abs(p.pos.x) > ROPE_LINE;
+        const overZ = Math.abs(p.pos.z) > ROPE_LINE;
+        const inDoorLane = p.pos.z > 2.3 && p.pos.x > 0.5 && p.pos.x < 2.7;
+        if ((overX || overZ) && !inDoorLane) {
+          const inward = new THREE.Vector3(-Math.sign(p.pos.x) * (overX ? 1 : 0), 0, -Math.sign(p.pos.z) * (overZ ? 1 : 0)).normalize();
+          p.kb.set(inward.x * 8, 0, inward.z * 8);
+          if (p.vel.y <= 0.5) p.vel.y = 3.4;
+          this.sfx.boing();
+        }
+      }
     }
 
     p.fireCd -= dt;
@@ -1708,8 +2029,10 @@ export class PaintballEngine {
 
     if (p.climbing) this.prompt = "E — let go";
     else if (holdingBomb) this.prompt = "CLICK — THROW THE BIG BOMB (run away after!)   E — set it down";
+    else if (this.cat.held) this.prompt = "E — put the cat down somewhere SAFE 🐈";
     else if (holdingCan) this.prompt = "CLICK — hurl the trash can!   E — set it down";
     else if (this.nearBomb()) this.prompt = "E — grab the BIG BOMB!";
+    else if (this.nearCat()) this.prompt = "E — rescue the cat";
     else if (this.nearestCan(p.pos, 1.7)) this.prompt = "E — pick up trash can";
     else if (this.nearCageWall(p) && p.pos.y < CAGE_H - 0.3) this.prompt = "E — climb the cage";
     else this.prompt = "";
@@ -1733,7 +2056,7 @@ export class PaintballEngine {
     f.rig.group.rotation.x = 0;
     f.rig.group.position.copy(f.pos);
     f.rig.group.rotation.y = f.yaw;
-    poseHumanoid(f.rig, f.walkPhase, f.speed01, f.pitch, f.aiming && !f.climbing, f.climbing);
+    poseHumanoid(f.rig, f.walkPhase, f.speed01, f.pitch, f.aiming && !f.climbing, f.climbing, f.crouchK);
   }
 
   private hitRadius(f: Fighter): number {
@@ -1822,7 +2145,7 @@ export class PaintballEngine {
         for (const f of this.fighters) {
           if (f === b.owner || !f.alive || f.team === b.owner.team) continue;
           const hr = this.hitRadius(f);
-          const top = f.pos.y + 1.6 * f.scaleCur;
+          const top = f.pos.y + (1.6 - 0.45 * f.crouchK) * f.scaleCur;
           const cy = THREE.MathUtils.clamp(b.pos.y, f.pos.y + 0.15, top);
           const dx = b.pos.x - f.pos.x;
           const dz = b.pos.z - f.pos.z;
@@ -1886,6 +2209,28 @@ export class PaintballEngine {
             }
             break;
           }
+        }
+      }
+      if (!dead) {
+        // hitting the cat is a war crime — the player takes the damage
+        const cat = this.cat;
+        const cdx = b.pos.x - cat.pos.x;
+        const cdz = b.pos.z - cat.pos.z;
+        if (cdx * cdx + cdz * cdz < 0.34 * 0.34 && b.pos.y > cat.pos.y - 0.1 && b.pos.y < cat.pos.y + 0.55) {
+          this.addBurst(b.pos, new THREE.Vector3(0, 1, 0), b.color);
+          this.sfx.meow();
+          if (b.owner.team === 1 && this.player.alive) {
+            this.damage(
+              this.player,
+              b.owner,
+              b.dmg,
+              new THREE.Vector3(this.player.pos.x, this.player.pos.y + 1.1, this.player.pos.z),
+              "ball"
+            );
+            this.cb.onKill("😾 They hit the cat! Jack takes the damage!", true);
+          }
+          dead = true;
+          exploded = !!b.explosive;
         }
       }
       if (!dead) {
@@ -2047,6 +2392,104 @@ export class PaintballEngine {
     }
   }
 
+  private updateCat(dt: number) {
+    const c = this.cat;
+    c.meowCd -= dt;
+    if (c.held) {
+      const p = this.player;
+      c.pos.set(
+        p.pos.x + Math.sin(p.yaw) * 0.45,
+        p.pos.y + (1.05 - 0.35 * p.crouchK) * p.scaleCur,
+        p.pos.z + Math.cos(p.yaw) * 0.45
+      );
+      c.group.position.copy(c.pos);
+      c.group.rotation.y = p.yaw + Math.PI / 2;
+      if (!p.alive) c.held = false;
+      return;
+    }
+    c.thinkT -= dt;
+    if (c.thinkT <= 0) {
+      c.thinkT = 3 + Math.random() * 6;
+      if (Math.random() < 0.3) {
+        c.wander = null; // sit for a while
+      } else {
+        const a = Math.random() * Math.PI * 2;
+        const d = 6 + Math.random() * 22;
+        c.wander = new THREE.Vector3(Math.cos(a) * d, 0, Math.sin(a) * d);
+      }
+    }
+    if (c.wander) {
+      const dx = c.wander.x - c.pos.x;
+      const dz = c.wander.z - c.pos.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < 0.4) c.wander = null;
+      else {
+        const step = 1.15 * dt;
+        let nx = c.pos.x + (dx / dist) * step;
+        let nz = c.pos.z + (dz / dist) * step;
+        [nx, nz] = this.resolveXZ(nx, nz, c.pos.y, 0.2, c.pos.y + 0.4);
+        c.pos.x = nx;
+        c.pos.z = nz;
+        c.group.rotation.y = Math.atan2(dx, dz) - Math.PI / 2;
+        c.walkT += dt * 9;
+        c.group.position.y = c.pos.y + Math.abs(Math.sin(c.walkT)) * 0.02;
+      }
+    }
+    c.pos.y = this.world.floorHeightAt(c.pos.x, c.pos.z, c.pos.y);
+    c.group.position.set(c.pos.x, c.pos.y, c.pos.z);
+  }
+
+  private updateFootballs(dt: number) {
+    for (const fb of this.footballs) {
+      // kicks: any fighter walking into the ball punts it
+      for (const f of this.fighters) {
+        if (!f.alive) continue;
+        const dx = fb.pos.x - f.pos.x;
+        const dz = fb.pos.z - f.pos.z;
+        const d = Math.hypot(dx, dz);
+        if (d < 0.55 && Math.abs(fb.pos.y - f.pos.y) < 1) {
+          const power = 3.5 + f.speed01 * 5;
+          fb.vel.x = (dx / (d || 1)) * power;
+          fb.vel.z = (dz / (d || 1)) * power;
+          fb.vel.y = 1.6 + f.speed01 * 1.6;
+          this.sfx.kick();
+        }
+      }
+      if (fb.vel.lengthSq() > 0.001) {
+        fb.vel.y -= 16 * dt;
+        fb.pos.addScaledVector(fb.vel, dt);
+        const [rx, rz] = this.resolveXZ(fb.pos.x, fb.pos.z, fb.pos.y, 0.16, fb.pos.y + 0.32);
+        if (rx !== fb.pos.x || rz !== fb.pos.z) {
+          const nx = rx - fb.pos.x;
+          const nz = rz - fb.pos.z;
+          const nl = Math.hypot(nx, nz) || 1;
+          const dot = (fb.vel.x * nx + fb.vel.z * nz) / nl;
+          if (dot < 0) {
+            fb.vel.x -= 1.7 * dot * (nx / nl);
+            fb.vel.z -= 1.7 * dot * (nz / nl);
+          }
+          fb.pos.x = rx;
+          fb.pos.z = rz;
+        }
+        const fh = this.world.floorHeightAt(fb.pos.x, fb.pos.z, fb.pos.y) + 0.16;
+        if (fb.pos.y < fh) {
+          fb.pos.y = fh;
+          fb.vel.y = fb.vel.y < -1 ? -fb.vel.y * 0.55 : 0;
+          fb.vel.x *= 0.985;
+          fb.vel.z *= 0.985;
+        }
+        // roll friction + spin
+        const damp = Math.pow(0.35, dt);
+        fb.vel.x *= damp;
+        fb.vel.z *= damp;
+        if (fb.vel.lengthSq() < 0.02) fb.vel.set(0, 0, 0);
+        fb.mesh.position.copy(fb.pos);
+        fb.mesh.rotation.x += fb.vel.z * dt * 6;
+        fb.mesh.rotation.z -= fb.vel.x * dt * 6;
+      }
+    }
+  }
+
   private updateFx(dt: number) {
     if (this.bubble) {
       this.bubble.t -= dt;
@@ -2108,7 +2551,7 @@ export class PaintballEngine {
 
   private updateCamera(dt: number) {
     const p = this.player;
-    const eye = new THREE.Vector3(p.pos.x, p.pos.y + 1.5 * p.scaleCur, p.pos.z);
+    const eye = new THREE.Vector3(p.pos.x, p.pos.y + (1.5 - 0.5 * p.crouchK) * p.scaleCur, p.pos.z);
     const dir = this.aimVector(p);
     const right = new THREE.Vector3(-Math.cos(p.yaw), 0, Math.sin(p.yaw));
     // over-the-shoulder: offset right so your own character doesn't block the view
@@ -2172,6 +2615,10 @@ export class PaintballEngine {
       this.updateSmokes(dt);
       this.updateCans(dt);
       this.updateBomb(dt);
+      this.updateCat(dt);
+      this.updateFootballs(dt);
+      this.updateRingCamping(dt);
+      this.updateWrestler(dt);
       this.updatePickups(dt);
       this.updateFx(dt);
       this.updateCamera(dt);

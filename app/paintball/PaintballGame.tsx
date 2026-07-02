@@ -283,7 +283,15 @@ export default function PaintballGame() {
             <span><b className="text-lime-300">E</b> — climb cage / grab can</span>
             <span><b className="text-pink-300">G</b> — paint grenade</span>
             <span><b className="text-slate-300">H</b> — smoke grenade</span>
+            <span><b className="text-lime-300">C</b> — crouch (steady aim)</span>
+            <span><b className="text-lime-300">E</b> — rescue the cat 🐈</span>
           </div>
+          <p className="max-w-md text-xs text-lime-100/70">
+            Bounce off the ring ropes, spring extra high off the mat, kick ⚽ footballs around —
+            but protect the 🐈 <b className="text-white">cat</b> (paint that hits it hurts YOU) and
+            don&apos;t camp in the ring over 20 seconds… or <b className="text-red-400">THE ENFORCER</b> will
+            run the ropes and SPEAR you!
+          </p>
           <p className="max-w-md text-xs text-lime-100/70">
             Hunt for glowing pickups: <b className="text-yellow-300">10 upgrade weapons</b> (bazooka, minigun,
             homing hornet…) and <b className="text-cyan-300">crazy skills</b> — speed boost, GIANT mode, tiny mode,

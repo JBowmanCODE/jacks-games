@@ -263,6 +263,7 @@ export function createHumanoid(teamColor: number, seed: number, opts?: HumanoidO
  * walkPhase advances with distance moved; speed01 is 0 idle → 1 sprint.
  * aimPitch tilts the aiming arms and head (radians, +up).
  * aiming=true holds the marker up two-handed.
+ * crouch is 0..1 — bends knees and lowers the torso.
  */
 export function poseHumanoid(
   h: Humanoid,
@@ -270,7 +271,8 @@ export function poseHumanoid(
   speed01: number,
   aimPitch: number,
   aiming: boolean,
-  climbing = false
+  climbing = false,
+  crouch = 0
 ) {
   const swing = Math.sin(walkPhase) * 0.85 * speed01;
   const swingB = Math.sin(walkPhase + Math.PI) * 0.85 * speed01;
@@ -289,15 +291,15 @@ export function poseHumanoid(
     return;
   }
 
-  // legs
-  h.hipL.rotation.x = swing;
-  h.hipR.rotation.x = swingB;
-  h.kneeL.rotation.x = Math.max(0, -swing) * 1.2 + 0.08 * speed01;
-  h.kneeR.rotation.x = Math.max(0, -swingB) * 1.2 + 0.08 * speed01;
+  // legs (crouch bends knees and drops the hips)
+  h.hipL.rotation.x = swing - 1.05 * crouch;
+  h.hipR.rotation.x = swingB - 1.05 * crouch;
+  h.kneeL.rotation.x = Math.max(0, -swing) * 1.2 + 0.08 * speed01 + 1.45 * crouch;
+  h.kneeR.rotation.x = Math.max(0, -swingB) * 1.2 + 0.08 * speed01 + 1.45 * crouch;
 
   // subtle torso bob & lean
-  h.torso.position.y = 0.94 + Math.abs(Math.sin(walkPhase)) * 0.035 * speed01;
-  h.torso.rotation.x = 0.06 * speed01;
+  h.torso.position.y = 0.94 + Math.abs(Math.sin(walkPhase)) * 0.035 * speed01 - 0.36 * crouch;
+  h.torso.rotation.x = 0.06 * speed01 + 0.2 * crouch;
 
   if (aiming) {
     // two-handed marker hold, arms track pitch (arm axis -y; -PI/2 about x points it forward +z)
