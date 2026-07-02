@@ -12,7 +12,7 @@ interface FeedLine {
 }
 
 const EMPTY_HUD: HudState = {
-  hp: 100, shield: 0, red: 0, blue: 0, time: 300, prompt: "", carrying: false, carryingBomb: false,
+  hp: 100, shield: 0, red: 0, blue: 0, time: 600, prompt: "", carrying: false, carryingBomb: false,
   dead: false, respawnIn: 0, onRoof: false, weapon: "Splat Marker", weaponIcon: "🔫", gPaint: 0, gSmoke: 0, fx: [],
 };
 

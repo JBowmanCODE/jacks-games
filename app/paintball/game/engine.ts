@@ -14,7 +14,7 @@ const BOT_SPEED = 3.7;
 const CLIMB_SPEED = 2.4;
 const CAN_DMG = 100;
 const RESPAWN_T = 3.5;
-const MATCH_TIME = 300;
+const MATCH_TIME = 600; // 10-minute matches
 const WIN_SCORE = 10; // splats take longer now, so first to 10 wins
 const STEP_UP = 0.55;
 const NADE_CD = 60;
@@ -430,6 +430,7 @@ export class PaintballEngine {
   private pickups: Pickup[] = [];
   private bomb!: BombState;
   private bombHome = new THREE.Vector3(0, CAGE_H + 0.04, 0);
+  private bubble: { sprite: THREE.Sprite; t: number } | null = null;
 
   private keys = new Set<string>();
   private mouseDown = false;
@@ -1206,11 +1207,51 @@ export class PaintballEngine {
   }
 
   // ================= pickups & skills =================
+  /** Speech bubble above the player's head, e.g. after munching an arepa. */
+  private showBubble(text: string, seconds: number) {
+    if (this.bubble) {
+      this.player.rig.group.remove(this.bubble.sprite);
+      (this.bubble.sprite.material as THREE.SpriteMaterial).map?.dispose();
+      (this.bubble.sprite.material as THREE.Material).dispose();
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = 320;
+    canvas.height = 96;
+    const ctx = canvas.getContext("2d")!;
+    // rounded bubble with a little tail
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.strokeStyle = "rgba(0,0,0,0.65)";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.roundRect(4, 4, 312, 62, 18);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(140, 64);
+    ctx.lineTo(160, 92);
+    ctx.lineTo(180, 64);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#222";
+    ctx.font = "bold 26px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, 160, 36);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+    sprite.scale.set(2.1, 0.63, 1);
+    sprite.position.y = 2.55;
+    this.player.rig.group.add(sprite);
+    this.bubble = { sprite, t: seconds };
+  }
+
   private applySkill(f: Fighter, skill: SkillDef) {
     if (skill.key === "shield") {
       f.shield = 100;
     } else if (skill.key === "arepa") {
       f.hp = 100;
+      if (f.isPlayer) this.showBubble("mmm arepa 100% health", 2);
     } else {
       f.fx.set(skill.key, skill.dur);
       // big and small are mutually exclusive
@@ -1911,6 +1952,15 @@ export class PaintballEngine {
   }
 
   private updateFx(dt: number) {
+    if (this.bubble) {
+      this.bubble.t -= dt;
+      if (this.bubble.t <= 0) {
+        this.player.rig.group.remove(this.bubble.sprite);
+        (this.bubble.sprite.material as THREE.SpriteMaterial).map?.dispose();
+        (this.bubble.sprite.material as THREE.Material).dispose();
+        this.bubble = null;
+      }
+    }
     for (let i = this.flashes.length - 1; i >= 0; i--) {
       const fl = this.flashes[i];
       fl.life -= dt;
