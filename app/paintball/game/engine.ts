@@ -160,6 +160,7 @@ export interface EngineCallbacks {
   onGameOver(winner: "red" | "blue" | "draw", red: number, blue: number): void;
   onDamage(): void;
   onPraise(text: string): void;
+  onSpear(victim: string): void;
 }
 
 interface HpBar {
@@ -272,14 +273,21 @@ interface Football {
 
 interface WrestlerState {
   rig: Humanoid;
-  state: "bounce" | "charge" | "taunt";
+  hpBar: HpBar;
+  hp: number;
+  state: "runback" | "bounce" | "charge" | "slam" | "getup" | "taunt" | "guard";
   t: number;
-  target: Fighter;
+  target: Fighter | null;
   pos: THREE.Vector3;
   dir: THREE.Vector3;
+  dest: THREE.Vector3;
   walkPhase: number;
   hit: boolean;
+  guardT: number;
 }
+
+const WRESTLER_HP = 500;
+const WRESTLER_BONUS = 3;
 
 interface BombState {
   group: THREE.Group;
@@ -778,71 +786,176 @@ export class PaintballEngine {
   }
 
   // ================= the Enforcer =================
+  private ropesPointAwayFrom(target: Fighter): THREE.Vector3 {
+    const away = new THREE.Vector3(target.pos.x, 0, target.pos.z);
+    if (away.lengthSq() < 0.01) away.set(1, 0, 0);
+    away.normalize();
+    return new THREE.Vector3(-away.x * (ROPE_LINE - 0.3), MAT_Y, -away.z * (ROPE_LINE - 0.3));
+  }
+
   private summonWrestler(target: Fighter) {
     const rig = createHumanoid(0xc98858, 77, { hair: "#181818", backName: "ENFORCER", backNumber: "1" });
     rig.group.scale.set(1.5, 1.2, 1.5); // big and muscley
     this.scene.add(rig.group);
-    // appear at the ropes on the far side of the target
-    const away = new THREE.Vector3(target.pos.x, 0, target.pos.z);
-    if (away.lengthSq() < 0.01) away.set(1, 0, 0);
-    away.normalize();
-    const pos = new THREE.Vector3(-away.x * (ROPE_LINE - 0.3), MAT_Y, -away.z * (ROPE_LINE - 0.3));
+    const pos = this.ropesPointAwayFrom(target);
     rig.group.position.copy(pos);
     this.addBurst(pos.clone().setY(MAT_Y + 1.5), new THREE.Vector3(0, 1, 0), 0xffffff);
-    this.wrestler = { rig, state: "bounce", t: 0.55, target, pos, dir: new THREE.Vector3(), walkPhase: 0, hit: false };
+    const hpBar = this.makeHpBar(rig);
+    // undo his 1.5x body scale so the bar stays a normal size
+    hpBar.sprite.scale.set(0.95 / 1.5, 0.18 / 1.2, 1);
+    hpBar.sprite.position.y = 2.3;
+    this.drawHpBar(hpBar, 100, 0);
+    this.wrestler = {
+      rig, hpBar, hp: WRESTLER_HP,
+      state: "bounce", t: 0.6, target, pos,
+      dir: new THREE.Vector3(), dest: new THREE.Vector3(),
+      walkPhase: 0, hit: false, guardT: 0,
+    };
     this.sfx.boing();
     this.cb.onKill(`💪 THE ENFORCER is coming for ${target.name}!`, true);
+  }
+
+  /** Enforcer is already guarding the ring — send him at a new camper. */
+  private commandSpear(target: Fighter) {
+    const w = this.wrestler!;
+    w.target = target;
+    w.hit = false;
+    w.dest.copy(this.ropesPointAwayFrom(target));
+    w.state = "runback";
+    this.cb.onKill(`💪 THE ENFORCER has spotted ${target.name} camping!`, true);
+  }
+
+  private hurtWrestler(dmg: number, attacker: Fighter, hitWorld: THREE.Vector3, color: number) {
+    const w = this.wrestler;
+    if (!w) return;
+    w.hp -= dmg;
+    addBodyPaint(w.rig, color, w.rig.torso.worldToLocal(hitWorld.clone()));
+    this.drawHpBar(w.hpBar, Math.max(0, Math.round((w.hp / WRESTLER_HP) * 100)), 0);
+    if (w.hp <= 0) {
+      // bonus points for taking out the big man
+      if (attacker.team === 0) this.score.red += WRESTLER_BONUS;
+      else this.score.blue += WRESTLER_BONUS;
+      this.cb.onKill(`🏆 ${attacker.name} took out THE ENFORCER! +${WRESTLER_BONUS} team points!`, true);
+      if (attacker.isPlayer) {
+        this.takedowns++;
+        this.cb.onPraise("ENFORCER DOWN!!!");
+      }
+      for (let i = 0; i < 3; i++) {
+        this.addBurst(w.pos.clone().setY(MAT_Y + 1 + i * 0.5), new THREE.Vector3(0, 1, 0), [0xffffff, 0xffcc22, 0xff4422][i]);
+      }
+      this.sfx.jingle(attacker.team === 0);
+      this.scene.remove(w.rig.group);
+      this.wrestler = null;
+    }
   }
 
   private updateWrestler(dt: number) {
     const w = this.wrestler;
     if (!w) return;
     w.t -= dt;
-    if (w.state === "bounce") {
-      // rocking against the ropes, winding up
+    w.pos.y = MAT_Y;
+    const clampInRing = () => {
+      w.pos.x = THREE.MathUtils.clamp(w.pos.x, -CAGE_HALF + 0.5, CAGE_HALF - 0.5);
+      w.pos.z = THREE.MathUtils.clamp(w.pos.z, -CAGE_HALF + 0.5, CAGE_HALF - 0.5);
+    };
+
+    if (w.state === "runback" && w.target) {
+      const dx = w.dest.x - w.pos.x;
+      const dz = w.dest.z - w.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 0.35) {
+        w.state = "bounce";
+        w.t = 0.6;
+      } else {
+        w.pos.x += (dx / d) * 6.5 * dt;
+        w.pos.z += (dz / d) * 6.5 * dt;
+        w.walkPhase += 6.5 * dt * 2.4;
+        w.rig.group.rotation.y = Math.atan2(dx, dz);
+        poseHumanoid(w.rig, w.walkPhase, 0.8, 0, false);
+      }
+    } else if (w.state === "bounce" && w.target) {
+      // hitting the ropes, winding up
       w.rig.group.rotation.y = Math.atan2(w.target.pos.x - w.pos.x, w.target.pos.z - w.pos.z);
-      w.rig.group.position.z = w.pos.z + Math.sin(w.t * 25) * 0.06;
-      poseHumanoid(w.rig, 0, 0, 0, false, false, 0.4);
+      poseHumanoid(w.rig, 0, 0, 0, false, false, 0.45 + Math.sin(w.t * 22) * 0.1);
       if (w.t <= 0) {
         w.state = "charge";
         w.dir.set(w.target.pos.x - w.pos.x, 0, w.target.pos.z - w.pos.z).normalize();
-        w.t = 1.4;
+        w.t = 1.2;
         this.sfx.whoosh();
       }
-      return;
-    }
-    if (w.state === "charge") {
-      w.pos.addScaledVector(w.dir, 13 * dt);
-      w.walkPhase += 13 * dt * 2.4;
-      w.rig.group.position.copy(w.pos);
+    } else if (w.state === "charge") {
+      w.pos.addScaledVector(w.dir, 14 * dt);
+      w.walkPhase += 14 * dt * 2.4;
       w.rig.group.rotation.y = Math.atan2(w.dir.x, w.dir.z);
-      poseHumanoid(w.rig, w.walkPhase, 1, 0, false, false, 0.25);
+      poseHumanoid(w.rig, w.walkPhase, 1, 0, false, false, 0.3);
+      // football-tackle form: shoulder dropped, arms swept back
+      w.rig.torso.rotation.x = 0.55;
+      w.rig.shoulderL.rotation.set(0.9, 0, 0.5);
+      w.rig.shoulderR.rotation.set(0.9, 0, -0.5);
+      w.rig.head.rotation.x = -0.35;
       const t = w.target;
-      if (!w.hit && t.alive) {
+      if (!w.hit && t && t.alive) {
         const d = Math.hypot(t.pos.x - w.pos.x, t.pos.z - w.pos.z);
-        if (d < 1.0) {
+        if (d < 1.05) {
           w.hit = true;
-          t.kb.set(w.dir.x * 11, 0, w.dir.z * 11);
-          t.vel.y = 5.5;
+          t.kb.set(w.dir.x * 13, 0, w.dir.z * 13);
+          t.vel.y = 4.5;
           this.damage(t, t, 55, new THREE.Vector3(t.pos.x, t.pos.y + 1.1, t.pos.z), "spear");
-          this.shake = Math.max(this.shake, 0.6);
+          this.cb.onSpear(t.name);
+          this.shake = Math.max(this.shake, 0.85);
           this.sfx.boom();
+          this.sfx.hurt();
+          // dive follow-through
+          w.state = "slam";
+          w.t = 0.5;
         }
       }
-      // stop at the far ropes or when time is up
-      if (w.t <= 0 || Math.abs(w.pos.x) > CAGE_HALF - 0.4 || Math.abs(w.pos.z) > CAGE_HALF - 0.4) {
+      if (w.state === "charge" && (w.t <= 0 || Math.abs(w.pos.x) > CAGE_HALF - 0.5 || Math.abs(w.pos.z) > CAGE_HALF - 0.5)) {
+        clampInRing();
         w.state = "taunt";
-        w.t = 1.1;
+        w.t = 1.2;
       }
-      return;
+    } else if (w.state === "slam") {
+      // crashing down through the tackle, sliding on the mat
+      const k = 1 - Math.max(0, w.t) / 0.5;
+      w.rig.group.rotation.x = -1.3 * k;
+      w.pos.addScaledVector(w.dir, (1 - k) * 6 * dt);
+      clampInRing();
+      if (w.t <= 0) {
+        w.state = "getup";
+        w.t = 0.6;
+      }
+    } else if (w.state === "getup") {
+      w.rig.group.rotation.x = -1.3 * (Math.max(0, w.t) / 0.6);
+      if (w.t <= 0) {
+        w.rig.group.rotation.x = 0;
+        w.state = "taunt";
+        w.t = 1.2;
+      }
+    } else if (w.state === "taunt") {
+      // flexing to the crowd
+      poseHumanoid(w.rig, w.t * 6, 0, 0, false, true);
+      if (w.t <= 0) {
+        w.state = "guard";
+        w.target = null;
+      }
+    } else if (w.state === "guard") {
+      // prowling the ring, daring anyone to stay
+      w.guardT += dt;
+      const gx = Math.cos(w.guardT * 0.55) * 1.7;
+      const gz = Math.sin(w.guardT * 0.55) * 1.7;
+      const dx = gx - w.pos.x;
+      const dz = gz - w.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 0.1) {
+        w.pos.x += (dx / d) * Math.min(2.2 * dt, d);
+        w.pos.z += (dz / d) * Math.min(2.2 * dt, d);
+        w.walkPhase += 2.2 * dt * 2.4;
+        w.rig.group.rotation.y = Math.atan2(dx, dz);
+      }
+      poseHumanoid(w.rig, w.walkPhase, 0.35, 0, false);
     }
-    // taunt: arms up flexing, then vanish
-    poseHumanoid(w.rig, w.t * 6, 0, 0, false, true);
-    if (w.t <= 0) {
-      this.addBurst(w.pos.clone().setY(MAT_Y + 1.5), new THREE.Vector3(0, 1, 0), 0xffffff);
-      this.scene.remove(w.rig.group);
-      this.wrestler = null;
-    }
+    w.rig.group.position.copy(w.pos);
   }
 
   private updateRingCamping(dt: number) {
@@ -859,9 +972,14 @@ export class PaintballEngine {
         if (f.isPlayer && before < RING_CAMP_LIMIT - 5 && f.ringT >= RING_CAMP_LIMIT - 5) {
           this.cb.onKill("⚠️ Ring camper detected! Get out before the ENFORCER arrives!", true);
         }
-        if (f.ringT >= RING_CAMP_LIMIT && !this.wrestler) {
-          f.ringT = -3; // grace after the spear
-          this.summonWrestler(f);
+        if (f.ringT >= RING_CAMP_LIMIT) {
+          if (!this.wrestler) {
+            f.ringT = -3; // grace after the spear
+            this.summonWrestler(f);
+          } else if (this.wrestler.state === "guard") {
+            f.ringT = -3;
+            this.commandSpear(f);
+          }
         }
       } else {
         f.ringT = Math.max(0, f.ringT - dt * 2);
@@ -2217,6 +2335,19 @@ export class PaintballEngine {
             }
             break;
           }
+        }
+      }
+      if (!dead && this.wrestler) {
+        // paint the big man — he soaks a LOT of hits
+        const w = this.wrestler;
+        const wdx = b.pos.x - w.pos.x;
+        const wdz = b.pos.z - w.pos.z;
+        if (wdx * wdx + wdz * wdz < 0.6 * 0.6 && b.pos.y > w.pos.y && b.pos.y < w.pos.y + 2.3) {
+          this.addBurst(b.pos, new THREE.Vector3(0, 1, 0), b.color);
+          this.sfx.splat();
+          this.hurtWrestler(b.dmg, b.owner, b.pos, b.color);
+          dead = true;
+          exploded = !!b.explosive;
         }
       }
       if (!dead) {

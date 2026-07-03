@@ -33,6 +33,7 @@ export default function PaintballGame() {
   const [hud, setHud] = useState<HudState>(EMPTY_HUD);
   const [feed, setFeed] = useState<FeedLine[]>([]);
   const [praises, setPraises] = useState<Praise[]>([]);
+  const [spearFx, setSpearFx] = useState<number | null>(null);
   const [flash, setFlash] = useState(0);
   const [result, setResult] = useState<{ winner: string; red: number; blue: number } | null>(null);
   const [isTouch, setIsTouch] = useState(false);
@@ -68,6 +69,11 @@ export default function PaintballGame() {
         const id = ++feedId.current;
         setPraises((p) => [...p.slice(-2), { id, text }]);
         setTimeout(() => setPraises((p) => p.filter((x) => x.id !== id)), 2200);
+      },
+      onSpear: () => {
+        const id = ++feedId.current;
+        setSpearFx(id);
+        setTimeout(() => setSpearFx((cur) => (cur === id ? null : cur)), 1400);
       },
     });
     engineRef.current = engine;
@@ -246,7 +252,22 @@ export default function PaintballGame() {
               </div>
             ))}
           </div>
-          <style>{`@keyframes pbpop { 0% { transform: scale(0.3) rotate(-8deg); opacity: 0; } 60% { transform: scale(1.25) rotate(-2deg); } 100% { transform: scale(1) rotate(-2deg); opacity: 1; } }`}</style>
+          {/* SPEAR!!! splash */}
+          {spearFx !== null && (
+            <div
+              className="pointer-events-none absolute left-1/2 top-20 z-20 text-8xl font-black italic tracking-widest text-red-500"
+              style={{
+                WebkitTextStroke: "4px white",
+                textShadow: "0 6px 0 rgba(0,0,0,0.6)",
+                animation: "pbspear 0.35s cubic-bezier(0.2, 2.2, 0.4, 1)",
+                transform: "translateX(-50%) rotate(-4deg)",
+              }}
+            >
+              SPEAR!!!
+            </div>
+          )}
+          <style>{`@keyframes pbpop { 0% { transform: scale(0.3) rotate(-8deg); opacity: 0; } 60% { transform: scale(1.25) rotate(-2deg); } 100% { transform: scale(1) rotate(-2deg); opacity: 1; } }
+@keyframes pbspear { 0% { transform: translateX(-50%) rotate(-4deg) scale(3.5); opacity: 0; } 100% { transform: translateX(-50%) rotate(-4deg) scale(1); opacity: 1; } }`}</style>
           {/* death overlay */}
           {hud.dead && (
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center bg-red-950/40">
@@ -300,7 +321,8 @@ export default function PaintballGame() {
             Bounce off the ring ropes, spring extra high off the mat, kick ⚽ footballs around —
             but protect the 🐈 <b className="text-white">cat</b> (paint that hits it hurts YOU) and
             don&apos;t camp in the ring over 20 seconds… or <b className="text-red-400">THE ENFORCER</b> will
-            run the ropes and SPEAR you!
+            run the ropes and <b className="text-red-400">SPEAR</b> you! He guards the ring afterwards —
+            splat him enough times to take him out for <b className="text-yellow-300">+3 bonus points</b>!
           </p>
           <p className="max-w-md text-xs text-lime-100/70">
             Hunt for glowing pickups: <b className="text-yellow-300">10 upgrade weapons</b> (bazooka, minigun,
