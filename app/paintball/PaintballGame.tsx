@@ -14,6 +14,7 @@ interface FeedLine {
 const EMPTY_HUD: HudState = {
   hp: 100, shield: 0, red: 0, blue: 0, time: 600, prompt: "", carrying: false, carryingBomb: false,
   dead: false, respawnIn: 0, onRoof: false, weapon: "Splat Marker", weaponIcon: "🔫", gPaint: 0, gSmoke: 0, fx: [],
+  takedowns: 0, livesUsed: 0,
 };
 
 interface Praise {
@@ -182,6 +183,15 @@ export default function PaintballGame() {
               >
                 💨 {hud.gSmoke === 0 ? "H" : `${hud.gSmoke}s`}
               </div>
+            </div>
+          </div>
+          {/* personal stats */}
+          <div className="pointer-events-none absolute left-5 top-24 flex flex-col gap-1.5">
+            <div className="flex items-center gap-2 rounded-lg bg-black/50 px-3 py-1.5 font-mono text-sm font-bold text-white backdrop-blur-sm">
+              🎯 SPLATTED <span className="text-lg text-lime-300">{hud.takedowns}</span>
+            </div>
+            <div className="flex items-center gap-2 rounded-lg bg-black/50 px-3 py-1.5 font-mono text-sm font-bold text-white backdrop-blur-sm">
+              💚 LIVES USED <span className="text-lg text-red-300">{hud.livesUsed}</span>
             </div>
           </div>
           {/* active skill effects */}

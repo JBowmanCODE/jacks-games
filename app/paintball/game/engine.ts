@@ -150,6 +150,8 @@ export interface HudState {
   gPaint: number; // seconds until ready, 0 = ready
   gSmoke: number;
   fx: { icon: string; name: string; sec: number }[];
+  takedowns: number; // opponents you've splatted
+  livesUsed: number; // times you've been splatted
 }
 
 export interface EngineCallbacks {
@@ -533,6 +535,8 @@ export class PaintballEngine {
   private timeLeft = MATCH_TIME;
   private score = { red: 0, blue: 0 };
   private nadeCd = { paint: 0, smoke: 0 };
+  private takedowns = 0;
+  private livesUsed = 0;
   private hudT = 0;
   private shake = 0;
   private prompt = "";
@@ -1072,6 +1076,8 @@ export class PaintballEngine {
     this.timeLeft = MATCH_TIME;
     this.score = { red: 0, blue: 0 };
     this.nadeCd = { paint: 0, smoke: 0 };
+    this.takedowns = 0;
+    this.livesUsed = 0;
     for (const f of this.fighters) {
       f.weapon = STARTER;
       f.fx.clear();
@@ -1505,6 +1511,8 @@ export class PaintballEngine {
       const scoringTeam = attacker.team === victim.team ? 1 - victim.team : attacker.team;
       if (scoringTeam === 0) this.score.red++;
       else this.score.blue++;
+      if (attacker.isPlayer && victim.team !== attacker.team) this.takedowns++;
+      if (victim.isPlayer) this.livesUsed++;
       const line =
         cause === "can"
           ? `${attacker.name} CRUSHED ${victim.name} with a trash can!`
@@ -2592,6 +2600,8 @@ export class PaintballEngine {
       gPaint: Math.ceil(this.nadeCd.paint),
       gSmoke: Math.ceil(this.nadeCd.smoke),
       fx,
+      takedowns: this.takedowns,
+      livesUsed: this.livesUsed,
     });
   }
 
