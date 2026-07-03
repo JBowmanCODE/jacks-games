@@ -257,6 +257,7 @@ interface Smoke {
 
 interface CatState {
   group: THREE.Group;
+  tag: THREE.Sprite;
   pos: THREE.Vector3;
   held: boolean;
   wander: THREE.Vector3 | null;
@@ -760,9 +761,16 @@ export class PaintballEngine {
       leg.castShadow = true;
       group.add(leg);
     }
+    // floating tag so the cat is easy to spot in the jungle
+    const tag = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: emojiTexture("🐈"), transparent: true, depthWrite: false, opacity: 0.9 })
+    );
+    tag.scale.set(0.5, 0.5, 1);
+    tag.position.y = 0.95;
+    group.add(tag);
     group.position.set(8, 0, -7);
     this.scene.add(group);
-    this.cat = { group, pos: new THREE.Vector3(8, 0, -7), held: false, wander: null, thinkT: 1, meowCd: 0, walkT: 0 };
+    this.cat = { group, tag, pos: new THREE.Vector3(8, 0, -7), held: false, wander: null, thinkT: 1, meowCd: 5, walkT: 0 };
   }
 
   private spawnFootballs() {
@@ -2534,6 +2542,12 @@ export class PaintballEngine {
   private updateCat(dt: number) {
     const c = this.cat;
     c.meowCd -= dt;
+    c.tag.position.y = 0.95 + Math.sin(performance.now() * 0.003) * 0.07;
+    // audible hint when the cat is nearby
+    if (c.meowCd <= 0) {
+      c.meowCd = 9 + Math.random() * 9;
+      if (!c.held && this.running && c.pos.distanceTo(this.player.pos) < 28) this.sfx.meow();
+    }
     if (c.held) {
       const p = this.player;
       c.pos.set(
