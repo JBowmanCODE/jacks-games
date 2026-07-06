@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { PaintballEngine, HudState } from "./game/engine";
+import TouchControls from "./TouchControls";
 
 type Phase = "menu" | "playing" | "paused" | "over";
 
@@ -90,6 +91,15 @@ export default function PaintballGame() {
     };
     document.addEventListener("pointerlockchange", onLockChange);
 
+    // on mobile there's no pointer lock to lose — pause when the app goes to the background
+    const onVis = () => {
+      if (document.hidden && phaseRef.current === "playing") {
+        engine.setRunning(false);
+        setPhase("paused");
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+
     const ro = new ResizeObserver(() => {
       engine.resize(wrap.clientWidth, wrap.clientHeight);
     });
@@ -97,6 +107,7 @@ export default function PaintballGame() {
 
     return () => {
       document.removeEventListener("pointerlockchange", onLockChange);
+      document.removeEventListener("visibilitychange", onVis);
       ro.disconnect();
       engine.dispose();
       engineRef.current = null;
@@ -109,7 +120,24 @@ export default function PaintballGame() {
     if (!engine || !canvas) return;
     setPhase("playing");
     engine.setRunning(true);
-    canvas.requestPointerLock?.();
+    if (isTouch) {
+      // best effort — go fullscreen and turn sideways where the browser allows it
+      try {
+        wrapRef.current?.requestFullscreen?.().catch(() => {});
+        (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> })
+          .lock?.("landscape")
+          .catch(() => {});
+      } catch {
+        // iOS Safari has neither — the game still works in the page
+      }
+    } else {
+      canvas.requestPointerLock?.();
+    }
+  };
+
+  const pauseGame = () => {
+    engineRef.current?.setRunning(false);
+    setPhase("paused");
   };
 
   const rematch = () => {
@@ -122,6 +150,10 @@ export default function PaintballGame() {
 
   const mins = Math.floor(hud.time / 60);
   const secs = String(hud.time % 60).padStart(2, "0");
+  // on touch the prompts talk about the on-screen buttons, not keys
+  const promptText = isTouch
+    ? hud.prompt.replaceAll("CLICK", "FIRE").replaceAll("E —", "✋ —")
+    : hud.prompt;
 
   return (
     <div ref={wrapRef} className="fixed inset-0 z-50 overflow-hidden bg-black select-none">
@@ -146,8 +178,8 @@ export default function PaintballGame() {
             <span className="text-white/70">{mins}:{secs}</span>
             <span className="text-blue-400">{hud.blue} BLU</span>
           </div>
-          {/* health + shield + weapon */}
-          <div className="pointer-events-none absolute bottom-5 left-5 w-56">
+          {/* health + shield + weapon (sits above the joystick on touch) */}
+          <div className={`pointer-events-none absolute ${isTouch ? "bottom-44 left-4 w-44" : "bottom-5 left-5 w-56"}`}>
             <div className="mb-1.5 inline-flex items-center gap-2 rounded-lg bg-black/50 px-3 py-1 font-mono text-sm font-bold text-white backdrop-blur-sm">
               <span className="text-lg">{hud.weaponIcon}</span> {hud.weapon}
             </div>
@@ -167,13 +199,14 @@ export default function PaintballGame() {
               />
             </div>
           </div>
-          {/* grenades */}
-          <div className="pointer-events-none absolute bottom-5 right-5 flex flex-col items-end gap-2">
+          {/* grenades (touch has its own buttons with cooldowns) */}
+          <div className={`pointer-events-none absolute flex flex-col items-end gap-2 ${isTouch ? "right-3 top-36" : "bottom-5 right-5"}`}>
             {hud.onRoof && (
               <div className="rounded-lg bg-yellow-400/90 px-3 py-1 font-mono text-sm font-black text-black shadow-lg">
                 🏆 ON TOP OF THE CAGE
               </div>
             )}
+            {!isTouch && (
             <div className="flex gap-2">
               <div
                 className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-mono text-sm font-bold backdrop-blur-sm ${
@@ -190,19 +223,20 @@ export default function PaintballGame() {
                 💨 {hud.gSmoke === 0 ? "H" : `${hud.gSmoke}s`}
               </div>
             </div>
+            )}
           </div>
-          {/* personal stats */}
-          <div className="pointer-events-none absolute left-5 top-24 flex flex-col gap-1.5">
+          {/* personal stats (horizontal next to the pause button on touch) */}
+          <div className={`pointer-events-none absolute flex gap-1.5 ${isTouch ? "left-16 top-3 flex-row" : "left-5 top-24 flex-col"}`}>
             <div className="flex items-center gap-2 rounded-lg bg-black/50 px-3 py-1.5 font-mono text-sm font-bold text-white backdrop-blur-sm">
-              🎯 SPLATTED <span className="text-lg text-lime-300">{hud.takedowns}</span>
+              🎯 {!isTouch && "SPLATTED"} <span className="text-lg text-lime-300">{hud.takedowns}</span>
             </div>
             <div className="flex items-center gap-2 rounded-lg bg-black/50 px-3 py-1.5 font-mono text-sm font-bold text-white backdrop-blur-sm">
-              💚 LIVES USED <span className="text-lg text-red-300">{hud.livesUsed}</span>
+              💚 {!isTouch && "LIVES USED"} <span className="text-lg text-red-300">{hud.livesUsed}</span>
             </div>
           </div>
           {/* active skill effects */}
           {hud.fx.length > 0 && (
-            <div className="pointer-events-none absolute left-5 top-1/2 flex -translate-y-1/2 flex-col gap-1.5">
+            <div className={`pointer-events-none absolute flex gap-1.5 ${isTouch ? "left-1/2 top-24 -translate-x-1/2 flex-row flex-wrap justify-center" : "left-5 top-1/2 -translate-y-1/2 flex-col"}`}>
               {hud.fx.map((e) => (
                 <div key={e.name} className="flex items-center gap-2 rounded-lg bg-black/55 px-3 py-1.5 font-mono text-sm font-bold text-yellow-200 backdrop-blur-sm">
                   <span className="text-lg">{e.icon}</span> {e.name} <span className="text-white/70">{e.sec}s</span>
@@ -212,8 +246,8 @@ export default function PaintballGame() {
           )}
           {/* interaction prompt */}
           {hud.prompt && !hud.dead && (
-            <div className="pointer-events-none absolute bottom-24 left-1/2 -translate-x-1/2 rounded-lg bg-black/60 px-4 py-2 font-mono text-sm font-bold text-yellow-300 backdrop-blur-sm">
-              {hud.prompt}
+            <div className={`pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-lg bg-black/60 px-4 py-2 font-mono text-sm font-bold text-yellow-300 backdrop-blur-sm ${isTouch ? "bottom-52" : "bottom-24"}`}>
+              {promptText}
             </div>
           )}
           {/* carrying banner */}
@@ -278,6 +312,17 @@ export default function PaintballGame() {
         </>
       )}
 
+      {/* touch controls */}
+      {phase === "playing" && isTouch && engineRef.current && (
+        <TouchControls
+          engine={engineRef.current}
+          prompt={hud.prompt}
+          gPaint={hud.gPaint}
+          gSmoke={hud.gSmoke}
+          onPause={pauseGame}
+        />
+      )}
+
       {/* pause overlay */}
       {phase === "paused" && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 bg-black/70">
@@ -294,55 +339,72 @@ export default function PaintballGame() {
 
       {/* start menu */}
       {phase === "menu" && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-gradient-to-b from-green-950/85 via-black/70 to-black/85 p-6 text-center">
-          <h1 className="bg-gradient-to-r from-lime-300 via-yellow-300 to-orange-400 bg-clip-text text-5xl font-black tracking-tight text-transparent drop-shadow sm:text-6xl">
-            PAINTBALL
-          </h1>
-          <h2 className="-mt-3 text-2xl font-black tracking-[0.35em] text-white/90">JUNGLE RUMBLE</h2>
-          <p className="max-w-md text-sm text-lime-100/80">
-            5v5 paintball deep in an overgrown jungle. A steel cage ring sits in the clearing —
-            the chain-link <b>blocks paint</b>, so duck inside for cover (watch the door!),
-            <b> climb on top</b> to snipe, and hurl <b>trash cans</b> off the roof.
-            Most splats in 10 minutes wins!
-          </p>
-          <div className="grid max-w-md grid-cols-2 gap-x-6 gap-y-1 rounded-xl bg-black/40 p-4 text-left font-mono text-xs text-white/80">
-            <span><b className="text-lime-300">WASD</b> — move</span>
-            <span><b className="text-lime-300">MOUSE</b> — aim</span>
-            <span><b className="text-lime-300">CLICK</b> — shoot / throw</span>
-            <span><b className="text-lime-300">SPACE</b> — jump</span>
-            <span><b className="text-lime-300">SHIFT</b> — sprint</span>
-            <span><b className="text-lime-300">E</b> — climb cage / grab can</span>
-            <span><b className="text-pink-300">G</b> — paint grenade</span>
-            <span><b className="text-slate-300">H</b> — smoke grenade</span>
-            <span><b className="text-lime-300">C</b> — crouch (steady aim)</span>
-            <span><b className="text-lime-300">E</b> — rescue the cat 🐈</span>
-          </div>
-          <p className="max-w-md text-xs text-lime-100/70">
-            Bounce off the ring ropes, spring extra high off the mat, kick ⚽ footballs around —
-            but protect the 🐈 <b className="text-white">cat</b> (paint that hits it hurts YOU) and
-            don&apos;t camp in the ring over 20 seconds… or <b className="text-red-400">THE ENFORCER</b> will
-            run the ropes and <b className="text-red-400">SPEAR</b> you! He guards the ring afterwards —
-            splat him enough times to take him out for <b className="text-yellow-300">+3 bonus points</b>!
-          </p>
-          <p className="max-w-md text-xs text-lime-100/70">
-            Hunt for glowing pickups: <b className="text-yellow-300">10 upgrade weapons</b> (bazooka, minigun,
-            homing hornet…) and <b className="text-cyan-300">crazy skills</b> — speed boost, GIANT mode, tiny mode,
-            invincibility, moon boots and more! Eat a <b className="text-amber-300">🫓 Colombian arepa</b> to heal
-            back to 100%. And on top of the cage sits the <b className="text-red-400">💣 BIG BOMB</b> — it splats
-            EVERYONE near the blast, even your own team. Throw it and RUN!
-          </p>
-          {isTouch && (
-            <p className="max-w-sm rounded-lg bg-yellow-500/20 px-3 py-2 text-xs text-yellow-200">
-              ⚠️ This game needs a keyboard and mouse — play it on a computer!
+        <div className="absolute inset-0 flex overflow-y-auto bg-gradient-to-b from-green-950/85 via-black/70 to-black/85">
+          <div className="m-auto flex flex-col items-center gap-4 p-6 text-center">
+            <h1 className="bg-gradient-to-r from-lime-300 via-yellow-300 to-orange-400 bg-clip-text text-5xl font-black tracking-tight text-transparent drop-shadow sm:text-6xl">
+              PAINTBALL
+            </h1>
+            <h2 className="-mt-3 text-2xl font-black tracking-[0.35em] text-white/90">JUNGLE RUMBLE</h2>
+            <button
+              onClick={enterGame}
+              className="mt-1 rounded-2xl bg-gradient-to-r from-lime-400 to-green-500 px-12 py-4 text-2xl font-black text-black shadow-lg shadow-lime-500/30 transition hover:scale-105"
+            >
+              ▶ PLAY
+            </button>
+            {isTouch && (
+              <p className="hidden max-w-sm rounded-lg bg-yellow-500/20 px-3 py-2 text-xs text-yellow-200 [@media(orientation:portrait)]:block">
+                📱 Turn your phone sideways for the best view!
+              </p>
+            )}
+            <p className="max-w-md text-sm text-lime-100/80">
+              5v5 paintball deep in an overgrown jungle. A steel cage ring sits in the clearing —
+              the chain-link <b>blocks paint</b>, so duck inside for cover (watch the door!),
+              <b> climb on top</b> to snipe, and hurl <b>trash cans</b> off the roof.
+              Most splats in 10 minutes wins!
             </p>
-          )}
-          <button
-            onClick={enterGame}
-            className="mt-2 rounded-2xl bg-gradient-to-r from-lime-400 to-green-500 px-12 py-4 text-2xl font-black text-black shadow-lg shadow-lime-500/30 transition hover:scale-105"
-          >
-            ▶ PLAY
-          </button>
-          <a href="/" className="font-mono text-sm text-white/50 hover:text-white">← all games</a>
+            {isTouch ? (
+              <div className="grid max-w-md grid-cols-2 gap-x-6 gap-y-1 rounded-xl bg-black/40 p-4 text-left font-mono text-xs text-white/80">
+                <span><b className="text-lime-300">LEFT STICK</b> — move</span>
+                <span><b className="text-lime-300">DRAG SCREEN</b> — aim</span>
+                <span><b className="text-lime-300">STICK TO EDGE</b> — sprint</span>
+                <span><b className="text-red-300">FIRE</b> — shoot / throw</span>
+                <span><b className="text-lime-300">JUMP</b> — jump</span>
+                <span><b className="text-lime-300">✋</b> — climb / grab / rescue 🐈</span>
+                <span><b className="text-pink-300">🎨</b> — paint grenade</span>
+                <span><b className="text-slate-300">💨</b> — smoke grenade</span>
+                <span><b className="text-lime-300">C</b> — crouch (steady aim)</span>
+                <span><b className="text-lime-300">⏸</b> — pause</span>
+              </div>
+            ) : (
+              <div className="grid max-w-md grid-cols-2 gap-x-6 gap-y-1 rounded-xl bg-black/40 p-4 text-left font-mono text-xs text-white/80">
+                <span><b className="text-lime-300">WASD</b> — move</span>
+                <span><b className="text-lime-300">MOUSE</b> — aim</span>
+                <span><b className="text-lime-300">CLICK</b> — shoot / throw</span>
+                <span><b className="text-lime-300">SPACE</b> — jump</span>
+                <span><b className="text-lime-300">SHIFT</b> — sprint</span>
+                <span><b className="text-lime-300">E</b> — climb cage / grab can</span>
+                <span><b className="text-pink-300">G</b> — paint grenade</span>
+                <span><b className="text-slate-300">H</b> — smoke grenade</span>
+                <span><b className="text-lime-300">C</b> — crouch (steady aim)</span>
+                <span><b className="text-lime-300">E</b> — rescue the cat 🐈</span>
+              </div>
+            )}
+            <p className="max-w-md text-xs text-lime-100/70">
+              Bounce off the ring ropes, spring extra high off the mat, kick ⚽ footballs around —
+              but protect the 🐈 <b className="text-white">cat</b> (paint that hits it hurts YOU) and
+              don&apos;t camp in the ring over 20 seconds… or <b className="text-red-400">THE ENFORCER</b> will
+              run the ropes and <b className="text-red-400">SPEAR</b> you! He guards the ring afterwards —
+              splat him enough times to take him out for <b className="text-yellow-300">+3 bonus points</b>!
+            </p>
+            <p className="max-w-md text-xs text-lime-100/70">
+              Hunt for glowing pickups: <b className="text-yellow-300">10 upgrade weapons</b> (bazooka, minigun,
+              homing hornet…) and <b className="text-cyan-300">crazy skills</b> — speed boost, GIANT mode, tiny mode,
+              invincibility, moon boots and more! Eat a <b className="text-amber-300">🫓 Colombian arepa</b> to heal
+              back to 100%. And on top of the cage sits the <b className="text-red-400">💣 BIG BOMB</b> — it splats
+              EVERYONE near the blast, even your own team. Throw it and RUN!
+            </p>
+            <a href="/" className="font-mono text-sm text-white/50 hover:text-white">← all games</a>
+          </div>
         </div>
       )}
 

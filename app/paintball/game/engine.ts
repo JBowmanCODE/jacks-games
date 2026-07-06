@@ -539,6 +539,8 @@ export class PaintballEngine {
 
   private keys = new Set<string>();
   private mouseDown = false;
+  private touchMove = { x: 0, y: 0 };
+  private touchSprint = false;
   private raf = 0;
   private clock = new THREE.Clock();
   private running = false;
@@ -560,7 +562,9 @@ export class PaintballEngine {
   constructor(canvas: HTMLCanvasElement, cb: EngineCallbacks) {
     this.cb = cb;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // phones have very high DPRs — cap lower there so the frame rate holds up
+    const isTouch = "ontouchstart" in window;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, isTouch ? 1.5 : 2));
     this.renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -1166,8 +1170,7 @@ export class PaintballEngine {
     this.player.yaw -= e.movementX * 0.0021;
     this.player.pitch = THREE.MathUtils.clamp(this.player.pitch - e.movementY * 0.0021, -1.25, 1.25);
   };
-  private onMouseDown = (e: MouseEvent) => {
-    if (e.button !== 0 || !this.running) return;
+  private pressFire() {
     if (this.bomb.state === "held" && this.bomb.holder === this.player) {
       this.throwBomb();
       return;
@@ -1175,10 +1178,52 @@ export class PaintballEngine {
     const held = this.cans.find((c) => c.held === this.player);
     if (held) this.throwCan(held, this.player);
     else this.mouseDown = true;
+  }
+  private onMouseDown = (e: MouseEvent) => {
+    if (e.button !== 0 || !this.running) return;
+    this.pressFire();
   };
   private onMouseUp = (e: MouseEvent) => {
     if (e.button === 0) this.mouseDown = false;
   };
+
+  // ================= touch input (virtual controls) =================
+  /** Analog move vector from the virtual joystick: x = strafe, y = forward, each -1..1. */
+  setTouchMove(x: number, y: number) {
+    this.touchMove.x = x;
+    this.touchMove.y = y;
+  }
+  setTouchSprint(on: boolean) {
+    this.touchSprint = on;
+  }
+  /** Aim by dragging — dx/dy are pixel deltas from a touch-look drag. */
+  touchLook(dx: number, dy: number) {
+    if (!this.running) return;
+    this.player.yaw -= dx * 0.004;
+    this.player.pitch = THREE.MathUtils.clamp(this.player.pitch - dy * 0.004, -1.25, 1.25);
+  }
+  /** Press/release a key from an on-screen button (Space, KeyC, KeyE, KeyG, KeyH...). */
+  setVirtualKey(code: string, down: boolean) {
+    if (down) {
+      if (!this.keys.has(code) && this.running) {
+        if (code === "KeyE") this.interact();
+        if (code === "KeyG") this.throwNade("paint");
+        if (code === "KeyH") this.throwNade("smoke");
+      }
+      this.keys.add(code);
+    } else {
+      this.keys.delete(code);
+    }
+  }
+  /** Hold/release the fire button (same behavior as holding the left mouse button). */
+  setFireHeld(down: boolean) {
+    if (!down) {
+      this.mouseDown = false;
+      return;
+    }
+    if (!this.running) return;
+    this.pressFire();
+  }
 
   private bindInput() {
     document.addEventListener("keydown", this.onKeyDown);
@@ -2126,12 +2171,15 @@ export class PaintballEngine {
         wx -= rightX;
         wz -= rightZ;
       }
+      // analog stick input (mobile) — gentle pushes move slower
+      wx += fwdX * this.touchMove.y + rightX * this.touchMove.x;
+      wz += fwdZ * this.touchMove.y + rightZ * this.touchMove.x;
       const wl = Math.hypot(wx, wz);
-      if (wl > 0) {
+      if (wl > 1) {
         wx /= wl;
         wz /= wl;
       }
-      const sprint = this.keys.has("ShiftLeft") || this.keys.has("ShiftRight");
+      const sprint = this.keys.has("ShiftLeft") || this.keys.has("ShiftRight") || this.touchSprint;
       const crouching = this.keys.has("KeyC") && p.grounded;
       p.crouchK += ((crouching ? 1 : 0) - p.crouchK) * Math.min(1, dt * 9);
       const onMat = this.world.floorHeightAt(p.pos.x, p.pos.z, p.pos.y) === MAT_Y && p.pos.y <= MAT_Y + 0.05;
