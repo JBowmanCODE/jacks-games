@@ -257,8 +257,10 @@ interface Smoke {
 
 interface CatState {
   group: THREE.Group;
-  tag: THREE.Sprite;
+  legs: THREE.Mesh[];
+  tailSegs: THREE.Mesh[];
   pos: THREE.Vector3;
+  yaw: number;
   held: boolean;
   wander: THREE.Vector3 | null;
   thinkT: number;
@@ -748,29 +750,32 @@ export class PaintballEngine {
     nose.position.set(0.34, 0.26, 0);
     group.add(nose);
     // black tail curving up
+    const tailSegs: THREE.Mesh[] = [];
     for (let i = 0; i < 3; i++) {
       const seg = new THREE.Mesh(new THREE.CapsuleGeometry(0.024 - i * 0.004, 0.09, 3, 6), black);
       seg.position.set(-0.24 - i * 0.035, 0.24 + i * 0.085, 0);
       seg.rotation.z = 0.5 - i * 0.25;
       group.add(seg);
+      tailSegs.push(seg);
     }
-    // legs
+    // legs, hinged at the hip so they can swing while trotting
+    const legs: THREE.Mesh[] = [];
     for (const [lx, lz] of [[0.14, 0.06], [0.14, -0.06], [-0.12, 0.06], [-0.12, -0.06]] as [number, number][]) {
-      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.14, 6), white);
-      leg.position.set(lx, 0.07, lz);
+      const geo = new THREE.CylinderGeometry(0.022, 0.022, 0.14, 6);
+      geo.translate(0, -0.07, 0);
+      const leg = new THREE.Mesh(geo, white);
+      leg.position.set(lx, 0.14, lz);
       leg.castShadow = true;
       group.add(leg);
+      legs.push(leg);
     }
-    // floating tag so the cat is easy to spot in the jungle
-    const tag = new THREE.Sprite(
-      new THREE.SpriteMaterial({ map: emojiTexture("🐈"), transparent: true, depthWrite: false, opacity: 0.9 })
-    );
-    tag.scale.set(0.5, 0.5, 1);
-    tag.position.y = 0.95;
-    group.add(tag);
     group.position.set(8, 0, -7);
     this.scene.add(group);
-    this.cat = { group, tag, pos: new THREE.Vector3(8, 0, -7), held: false, wander: null, thinkT: 1, meowCd: 5, walkT: 0 };
+    this.cat = {
+      group, legs, tailSegs,
+      pos: new THREE.Vector3(8, 0, -7), yaw: 0,
+      held: false, wander: null, thinkT: 1, meowCd: 5, walkT: 0,
+    };
   }
 
   private spawnFootballs() {
@@ -2542,7 +2547,6 @@ export class PaintballEngine {
   private updateCat(dt: number) {
     const c = this.cat;
     c.meowCd -= dt;
-    c.tag.position.y = 0.95 + Math.sin(performance.now() * 0.003) * 0.07;
     // audible hint when the cat is nearby
     if (c.meowCd <= 0) {
       c.meowCd = 9 + Math.random() * 9;
@@ -2557,6 +2561,8 @@ export class PaintballEngine {
       );
       c.group.position.copy(c.pos);
       c.group.rotation.y = p.yaw + Math.PI / 2;
+      // legs dangle while carried
+      for (const leg of c.legs) leg.rotation.x = 0.35;
       if (!p.alive) c.held = false;
       return;
     }
@@ -2571,25 +2577,46 @@ export class PaintballEngine {
         c.wander = new THREE.Vector3(Math.cos(a) * d, 0, Math.sin(a) * d);
       }
     }
+    let moving = false;
     if (c.wander) {
       const dx = c.wander.x - c.pos.x;
       const dz = c.wander.z - c.pos.z;
       const dist = Math.hypot(dx, dz);
       if (dist < 0.4) c.wander = null;
       else {
-        const step = 1.15 * dt;
+        moving = true;
+        const step = 1.5 * dt;
         let nx = c.pos.x + (dx / dist) * step;
         let nz = c.pos.z + (dz / dist) * step;
         [nx, nz] = this.resolveXZ(nx, nz, c.pos.y, 0.2, c.pos.y + 0.4);
         c.pos.x = nx;
         c.pos.z = nz;
-        c.group.rotation.y = Math.atan2(dx, dz) - Math.PI / 2;
-        c.walkT += dt * 9;
-        c.group.position.y = c.pos.y + Math.abs(Math.sin(c.walkT)) * 0.02;
+        // turn smoothly instead of snapping
+        const targetYaw = Math.atan2(dx, dz) - Math.PI / 2;
+        let diff = targetYaw - c.yaw;
+        diff = ((diff + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+        c.yaw += diff * Math.min(1, dt * 7);
+        c.walkT += dt * 11;
       }
     }
+    // trot gait: diagonal leg pairs swing in opposite phase
+    for (let i = 0; i < c.legs.length; i++) {
+      const phase = i === 0 || i === 3 ? 0 : Math.PI;
+      const want = moving ? Math.sin(c.walkT + phase) * 0.55 : 0;
+      c.legs[i].rotation.x += (want - c.legs[i].rotation.x) * Math.min(1, dt * 12);
+    }
+    // tail sways gently, more while walking
+    const t = performance.now() * 0.001;
+    for (let i = 0; i < c.tailSegs.length; i++) {
+      c.tailSegs[i].rotation.z = 0.5 - i * 0.25 + Math.sin(t * (moving ? 6 : 1.6) + i * 0.8) * 0.09;
+    }
     c.pos.y = this.world.floorHeightAt(c.pos.x, c.pos.z, c.pos.y);
-    c.group.position.set(c.pos.x, c.pos.y, c.pos.z);
+    c.group.rotation.y = c.yaw;
+    c.group.position.set(
+      c.pos.x,
+      c.pos.y + (moving ? Math.abs(Math.sin(c.walkT)) * 0.025 : 0),
+      c.pos.z
+    );
   }
 
   private updateFootballs(dt: number) {
