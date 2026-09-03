@@ -562,8 +562,8 @@ export class PaintballEngine {
   constructor(canvas: HTMLCanvasElement, cb: EngineCallbacks) {
     this.cb = cb;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    // phones have very high DPRs — cap lower there so the frame rate holds up
-    const isTouch = "ontouchstart" in window;
+    // phones and tablets have high DPRs — cap lower there so the frame rate holds up
+    const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0));
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, isTouch ? 1.5 : 2));
     this.renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
     this.renderer.shadowMap.enabled = true;

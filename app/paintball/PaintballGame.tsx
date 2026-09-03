@@ -45,7 +45,22 @@ export default function PaintballGame() {
   };
 
   useEffect(() => {
-    setIsTouch("ontouchstart" in window);
+    const checkTouch = () => {
+      return (
+        "ontouchstart" in window ||
+        (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0) ||
+        window.matchMedia("(pointer: coarse)").matches
+      );
+    };
+    setIsTouch(checkTouch());
+
+    // In case a touch device triggers a touch event later (e.g. tablet with keyboard/trackpad attached)
+    const onTouchDetect = () => {
+      setIsTouch(true);
+      window.removeEventListener("touchstart", onTouchDetect);
+    };
+    window.addEventListener("touchstart", onTouchDetect, { passive: true });
+
     const canvas = canvasRef.current!;
     const wrap = wrapRef.current!;
     canvas.width = wrap.clientWidth;
@@ -106,6 +121,7 @@ export default function PaintballGame() {
     ro.observe(wrap);
 
     return () => {
+      window.removeEventListener("touchstart", onTouchDetect);
       document.removeEventListener("pointerlockchange", onLockChange);
       document.removeEventListener("visibilitychange", onVis);
       ro.disconnect();
