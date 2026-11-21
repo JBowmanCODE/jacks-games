@@ -44,18 +44,18 @@ export default function CharacterPortrait({
         {/* Back hair layer (behind head/neck) */}
         {c.hairStyle === "mullet" && (
           <g>
-            {/* Iconic flowing light-brown mullet tail down the back & past the ears! */}
+            {/* Short, choppy messy mullet tufts just behind the neck (shaved sides!) */}
             <path
-              d="M27 54 C20 66, 18 82, 24 94 C31 92, 36 86, 39 80 L71 80 C74 86, 79 92, 86 94 C92 82, 90 66, 83 54 Z"
+              d="M35 64 L30 74 L38 72 L36 79 L45 75 L55 78 L65 75 L74 79 L72 72 L80 74 L75 64 Z"
               fill={c.hairColor}
               stroke="#5c3d22"
-              strokeWidth="2"
+              strokeWidth="1.8"
+              strokeLinejoin="round"
             />
-            {/* Mullet layered feathering streaks */}
             <path
-              d="M25 74 Q32 82 28 91 M85 74 Q78 82 82 91 M31 82 Q36 88 34 93 M79 82 Q74 88 76 93"
+              d="M38 71 L43 75 M67 75 L72 71 M52 73 L55 77"
               stroke={c.hairHighlight}
-              strokeWidth="2.5"
+              strokeWidth="2"
               strokeLinecap="round"
               fill="none"
             />
@@ -168,24 +168,43 @@ export default function CharacterPortrait({
 
         {/* FRONT HAIR STYLES — Distinct & faithful to every character! */}
 
-        {/* JackB: Light brown hair in a mullet (short textured top + front sweep, long mullet in back) */}
+        {/* JackB: Shaved/faded Ronaldo-style sides + messy textured top + short messy back mullet */}
         {c.hairStyle === "mullet" && (
           <g>
+            {/* Subtle buzzed/shaved fade along the sides above the ears */}
             <path
-              d="M27 48 C26 28, 38 19, 55 19 C72 19, 84 28, 83 48 C79 38, 72 34, 62 34 C53 34, 46 37, 36 39 C31 40, 29 44, 27 48 Z"
+              d="M29 49 C28 41, 31 35, 36 33 L38 41 C34 43, 31 46, 29 49 Z"
+              fill={c.hairColor}
+              opacity="0.32"
+            />
+            <path
+              d="M81 49 C82 41, 79 35, 74 33 L72 41 C76 43, 79 46, 81 49 Z"
+              fill={c.hairColor}
+              opacity="0.32"
+            />
+            {/* Textured Ronaldo-style messy top (high and tight above the shaved sides!) */}
+            <path
+              d="M34 39 C33 27, 42 19, 55 18 C68 19, 77 27, 76 39 C71 34, 65 33, 59 35 L55 31 L50 35 C44 33, 39 35, 34 39 Z"
               fill={c.hairColor}
               stroke="#5c3d22"
-              strokeWidth="2"
+              strokeWidth="1.9"
+              strokeLinejoin="round"
             />
-            {/* Textured choppy top tufts */}
+            {/* Messy textured spikes on top */}
             <path
-              d="M37 26 Q47 17 57 24 Q67 17 75 27"
+              d="M40 26 L45 19 L50 24 L56 17 L62 24 L68 20 L71 27"
+              fill={c.hairColor}
+              stroke="#5c3d22"
+              strokeWidth="1.6"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M42 29 Q54 24 67 28"
               fill="none"
               stroke={c.hairHighlight}
-              strokeWidth="3"
+              strokeWidth="2.3"
               strokeLinecap="round"
             />
-            <path d="M40 33 Q52 29 66 32" fill="none" stroke={c.hairHighlight} strokeWidth="2.2" strokeLinecap="round" />
           </g>
         )}
 

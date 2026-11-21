@@ -95,23 +95,27 @@ export function drawCharacter(
   ctx.fill();
   ctx.stroke();
 
-  // Back hair behind body (Mullet tail for JackB, Bob for Emma)
+  // Back hair behind body (Short messy mullet tuft for JackB, Bob for Emma)
   if (c.hairStyle === "mullet") {
     ctx.fillStyle = c.hairColor;
     ctx.strokeStyle = "#5c3d22";
-    ctx.lineWidth = 1.6;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    // Mullet flows out behind head & down past neck!
+    // Short choppy messy mullet peeking just behind the neck!
     if (facing === 1) {
-      ctx.moveTo(-14, -47);
-      ctx.quadraticCurveTo(-22, -37, -18, -26);
-      ctx.lineTo(-6, -30);
-      ctx.lineTo(-4, -47);
+      ctx.moveTo(-11, -50);
+      ctx.lineTo(-18, -46);
+      ctx.lineTo(-15, -42);
+      ctx.lineTo(-19, -37);
+      ctx.lineTo(-9, -38);
+      ctx.lineTo(-7, -49);
     } else {
-      ctx.moveTo(14, -47);
-      ctx.quadraticCurveTo(22, -37, 18, -26);
-      ctx.lineTo(6, -30);
-      ctx.lineTo(4, -47);
+      ctx.moveTo(11, -50);
+      ctx.lineTo(18, -46);
+      ctx.lineTo(15, -42);
+      ctx.lineTo(19, -37);
+      ctx.lineTo(9, -38);
+      ctx.lineTo(7, -49);
     }
     ctx.closePath();
     ctx.fill();
@@ -294,22 +298,38 @@ export function drawHairTop(
 ) {
   ctx.save();
   if (c.hairStyle === "mullet") {
-    // JackB: Light brown short top + front sweep
+    // JackB: Shaved Ronaldo-style sides + short messy textured top + short spiky back mullet
+    // Subtle buzzed side-fade
+    ctx.fillStyle = c.hairColor;
+    ctx.globalAlpha = 0.28;
+    ctx.fillRect(-13, -57, 4, 6);
+    ctx.fillRect(9, -57, 4, 6);
+    ctx.globalAlpha = 1;
+
+    // Textured messy top (tight above the shaved sides)
     ctx.fillStyle = c.hairColor;
     ctx.strokeStyle = "#5c3d22";
-    ctx.lineWidth = 1.6;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(0, -55, 14.5, Math.PI * 0.95, Math.PI * 2.05);
-    ctx.lineTo(13, -53);
-    ctx.quadraticCurveTo(0, -60, -13, -53);
+    ctx.moveTo(-10, -58);
+    ctx.lineTo(-9, -66);
+    ctx.lineTo(-4, -64);
+    ctx.lineTo(0, -68);
+    ctx.lineTo(5, -64);
+    ctx.lineTo(10, -66);
+    ctx.lineTo(11, -58);
+    ctx.quadraticCurveTo(0, -61, -10, -58);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
-    // Side mullet fluff
+
+    // Short messy choppy tail at the back of the head
     ctx.beginPath();
-    ctx.moveTo(-facing * 12, -55);
-    ctx.quadraticCurveTo(-facing * 20, -45, -facing * 16, -33);
-    ctx.lineTo(-facing * 9, -42);
+    ctx.moveTo(-facing * 11, -56);
+    ctx.lineTo(-facing * 17, -52);
+    ctx.lineTo(-facing * 14, -48);
+    ctx.lineTo(-facing * 17, -43);
+    ctx.lineTo(-facing * 10, -45);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
