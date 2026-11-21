@@ -89,6 +89,14 @@ const games = [
     color: "from-fuchsia-900 to-fuchsia-700",
     border: "border-fuchsia-800",
   },
+  {
+    href: "/rivalboys",
+    title: "Rival Boys",
+    description: "Join JackB, JackY, Harrison, Ryan & Emma! Play Roblox Rivals, football, YouTube & popcorn, watergun fights & living room sleepover!",
+    emoji: "🔫",
+    color: "from-indigo-800 to-violet-600",
+    border: "border-violet-500",
+  },
 ];
 
 const comingSoon = [
