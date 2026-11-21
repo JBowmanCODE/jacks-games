@@ -5,6 +5,7 @@ export type ActivityId =
   | "football"
   | "youtube"
   | "waterguns"
+  | "bottleflip"
   | "sleepover";
 
 export interface CharacterDef {
@@ -146,8 +147,8 @@ export const CHARACTERS: CharacterDef[] = [
     tagline: "Side-Part Boss",
     appearanceNote: "Dark skin, short black side-part",
     heightScale: 1.0,
-    skinColor: "#5c3824",
-    skinShadow: "#422616",
+    skinColor: "#8d5b3c",
+    skinShadow: "#70442a",
     hairColor: "#141418",
     hairHighlight: "#2f2f38",
     hairStyle: "sidepart",
@@ -265,6 +266,15 @@ export const ACTIVITIES: ActivityMeta[] = [
     description: "Spray everyone with Super Soakers, throw water balloons & refill at the hose!",
     color: "from-cyan-700 to-blue-700",
     accent: "#38bdf8",
+  },
+  {
+    id: "bottleflip",
+    title: "Bottle Flip",
+    shortTitle: "Bottle Flip",
+    emoji: "🍾",
+    description: "Flip 5 different water bottles! Land upright streaks & insane Cap Flips!",
+    color: "from-sky-600 to-teal-700",
+    accent: "#2dd4bf",
   },
   {
     id: "sleepover",

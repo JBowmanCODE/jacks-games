@@ -16,6 +16,7 @@ import RobloxRivalsGame from "./games/RobloxRivalsGame";
 import FootballGame from "./games/FootballGame";
 import YouTubePopcornGame from "./games/YouTubePopcornGame";
 import WatergunGame from "./games/WatergunGame";
+import BottleFlipGame from "./games/BottleFlipGame";
 import SleepoverGame from "./games/SleepoverGame";
 import { sound } from "./sound";
 
@@ -37,6 +38,7 @@ const STORY_ORDER: ActivityId[] = [
   "football",
   "youtube",
   "waterguns",
+  "bottleflip",
   "sleepover",
 ];
 
@@ -53,6 +55,7 @@ export default function RivalBoysGame() {
     football: 0,
     youtube: 0,
     waterguns: 0,
+    bottleflip: 0,
     sleepover: 0,
   });
 
@@ -125,7 +128,7 @@ export default function RivalBoysGame() {
             </div>
             <div className="flex flex-wrap items-center gap-3 text-xs text-gray-300">
               <span>🏆 Score: <strong className="text-white">{totalScore}</strong></span>
-              <span>⭐ Stars: <strong className="text-yellow-300">{totalStars}/15</strong></span>
+              <span>⭐ Stars: <strong className="text-yellow-300">{totalStars}/18</strong></span>
               <span>
                 🔊 Noise:{" "}
                 <strong className={chaos >= 100 ? "text-red-400" : "text-cyan-300"}>
@@ -173,7 +176,7 @@ export default function RivalBoysGame() {
         <div className="space-y-6">
           <div className="rounded-3xl border border-purple-600/60 bg-gradient-to-br from-[#231647] via-[#1a1536] to-[#12162e] p-6 text-center shadow-2xl">
             <div className="inline-block rounded-full bg-yellow-400/20 px-4 py-1 text-xs font-black uppercase tracking-widest text-yellow-300 mb-2">
-              🎮 Roblox Rivals · ⚽ Football · 🍿 YouTube · 🔫 Waterguns · 🛋️ Sleepover
+              🎮 Roblox Rivals · ⚽ Football · 🍿 YouTube · 🔫 Waterguns · 🍾 Bottle Flip · 🛋️ Sleepover
             </div>
             <h2 className="text-3xl sm:text-5xl font-black tracking-tight text-white">
               RIVAL <span className="text-yellow-400">BOYS</span>
@@ -310,6 +313,14 @@ export default function RivalBoysGame() {
           onExit={() => setScreen({ type: "hub" })}
         />
       )}
+      {screen.type === "activity" && screen.id === "bottleflip" && (
+        <BottleFlipGame
+          playerId={playerId}
+          onFinish={(res) => handleFinishActivity("bottleflip", res)}
+          onShout={handleShout}
+          onExit={() => setScreen({ type: "hub" })}
+        />
+      )}
       {screen.type === "activity" && screen.id === "sleepover" && (
         <SleepoverGame
           playerId={playerId}
@@ -402,7 +413,7 @@ export default function RivalBoysGame() {
             </div>
             <div className="rounded-2xl bg-black/40 p-3">
               <div className="text-xs text-gray-400">STARS EARNED</div>
-              <div className="text-2xl font-black text-yellow-300">{totalStars} / 15 ⭐</div>
+              <div className="text-2xl font-black text-yellow-300">{totalStars} / 18 ⭐</div>
             </div>
           </div>
           <div className="flex flex-wrap justify-center gap-3">

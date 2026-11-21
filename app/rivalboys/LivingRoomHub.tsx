@@ -34,11 +34,12 @@ interface StationZone {
 }
 
 const STATIONS: StationZone[] = [
-  { id: "roblox", label: "Roblox Rivals TV", emoji: "🎮", x: 38, y: 32, w: 195, h: 105, color: "#7c3aed" },
-  { id: "youtube", label: "YouTube & Popcorn", emoji: "🍿", x: 295, y: 32, w: 210, h: 105, color: "#d97706" },
-  { id: "sleepover", label: "Sleepover Sofa/Floor", emoji: "🛋️", x: 565, y: 32, w: 198, h: 105, color: "#4f46e5" },
-  { id: "football", label: "Backyard Football", emoji: "⚽", x: 38, y: 292, w: 220, h: 105, color: "#15803d" },
-  { id: "waterguns", label: "Watergun Yard", emoji: "🔫", x: 540, y: 292, w: 222, h: 105, color: "#0284c7" },
+  { id: "roblox", label: "Roblox Rivals TV", emoji: "🎮", x: 38, y: 32, w: 215, h: 105, color: "#7c3aed" },
+  { id: "youtube", label: "YouTube & Popcorn", emoji: "🍿", x: 292, y: 32, w: 215, h: 105, color: "#d97706" },
+  { id: "sleepover", label: "Sleepover Sofa/Floor", emoji: "🛋️", x: 547, y: 32, w: 215, h: 105, color: "#4f46e5" },
+  { id: "football", label: "Backyard Football", emoji: "⚽", x: 38, y: 292, w: 215, h: 105, color: "#15803d" },
+  { id: "bottleflip", label: "Bottle Flip Table", emoji: "🍾", x: 292, y: 292, w: 215, h: 105, color: "#0d9488" },
+  { id: "waterguns", label: "Watergun Yard", emoji: "🔫", x: 547, y: 292, w: 215, h: 105, color: "#0284c7" },
 ];
 
 /**
@@ -296,7 +297,7 @@ export default function LivingRoomHub({
       </div>
 
       {/* Quick-launch activity cards (super easy for kids & tablets!) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {ACTIVITIES.map((act) => {
           const stars = completed[act.id] ?? 0;
           return (
