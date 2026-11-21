@@ -23,11 +23,15 @@ interface BottleSpec {
   bodyColor: string;
   labelColor: string;
   capColor: string;
-  spinFactor: number; // affects rotation speed
-  gravity: number;
+  greenCenter: number; // 0..1 position of green upright zone on bar
+  goldCenter: number;  // 0..1 position of gold cap-flip zone on bar
+  barSpeed: number;    // gauge oscillation speed
   pointsMult: number;
   desc: string;
 }
+
+const GREEN_HALF = 0.085;
+const GOLD_HALF = 0.055;
 
 const BOTTLES: BottleSpec[] = [
   {
@@ -40,8 +44,9 @@ const BOTTLES: BottleSpec[] = [
     bodyColor: "rgba(224, 242, 254, 0.72)",
     labelColor: "#0284c7",
     capColor: "#0369a1",
-    spinFactor: 1.0,
-    gravity: 980,
+    greenCenter: 0.56,
+    goldCenter: 0.87,
+    barSpeed: 1.25,
     pointsMult: 1.0,
     desc: "Balanced & smooth!",
   },
@@ -55,8 +60,9 @@ const BOTTLES: BottleSpec[] = [
     bodyColor: "rgba(236, 252, 203, 0.85)",
     labelColor: "#16a34a",
     capColor: "#111827",
-    spinFactor: 1.12,
-    gravity: 1020,
+    greenCenter: 0.5,
+    goldCenter: 0.84,
+    barSpeed: 1.4,
     pointsMult: 1.25,
     desc: "Fast sports spin (+25%)",
   },
@@ -70,8 +76,9 @@ const BOTTLES: BottleSpec[] = [
     bodyColor: "rgba(207, 250, 254, 0.78)",
     labelColor: "#ec4899",
     capColor: "#be185d",
-    spinFactor: 1.32,
-    gravity: 920,
+    greenCenter: 0.44,
+    goldCenter: 0.79,
+    barSpeed: 1.6,
     pointsMult: 1.5,
     desc: "Tiny & speedy (+50%)",
   },
@@ -85,8 +92,9 @@ const BOTTLES: BottleSpec[] = [
     bodyColor: "rgba(186, 230, 253, 0.72)",
     labelColor: "#7c3aed",
     capColor: "#f59e0b",
-    spinFactor: 0.78,
-    gravity: 1120,
+    greenCenter: 0.62,
+    goldCenter: 0.9,
+    barSpeed: 1.1,
     pointsMult: 1.75,
     desc: "Heavy slow flip (+75%)",
   },
@@ -100,8 +108,9 @@ const BOTTLES: BottleSpec[] = [
     bodyColor: "rgba(250, 204, 21, 0.88)",
     labelColor: "#b45309",
     capColor: "#fde047",
-    spinFactor: 1.18,
-    gravity: 1000,
+    greenCenter: 0.52,
+    goldCenter: 0.86,
+    barSpeed: 1.55,
     pointsMult: 2.0,
     desc: "Double points! (2x)",
   },
@@ -186,10 +195,13 @@ export default function BottleFlipGame({
     const bottle = {
       x: W / 2,
       y: TABLE_Y - bottleRef.current.height / 2,
-      vx: 0,
-      vy: 0,
       angle: 0, // radians, 0 = upright, PI = cap upside-down
-      angVel: 0,
+      flightElapsed: 0,
+      flightDuration: 0.78,
+      peakHeight: 190,
+      targetAngle: Math.PI * 2,
+      plannedOutcome: "miss" as "upright" | "cap" | "miss",
+      driftX: 0,
     };
 
     const confetti: Confetti[] = [];
@@ -210,10 +222,8 @@ export default function BottleFlipGame({
       lastOutcome = "none";
       bottle.x = W / 2;
       bottle.y = TABLE_Y - spec.height / 2;
-      bottle.vx = 0;
-      bottle.vy = 0;
       bottle.angle = 0;
-      bottle.angVel = 0;
+      bottle.flightElapsed = 0;
     };
 
     const burstConfetti = (x: number, y: number, count = 28) => {
@@ -247,18 +257,33 @@ export default function BottleFlipGame({
       if (phase !== "charging") return;
       const spec = bottleRef.current;
       phase = "flying";
+      bottle.flightElapsed = 0;
+      bottle.x = W / 2;
+      bottle.y = TABLE_Y - spec.height / 2;
+      bottle.angle = 0;
+      bottle.driftX = (Math.random() - 0.5) * 28;
 
-      // Sweet spot is around charge 0.52..0.72 -> lands a crisp full 360° flip!
-      // Higher charge (0.76..0.92) -> 540° (Cap Flip chance!) or 720° double flip!
-      const power = 0.25 + charge * 0.95;
-      bottle.vy = -(490 + power * 235);
-      bottle.vx = (Math.random() - 0.5) * 30;
-      // Compute angular velocity so sweet-spot charge (~0.62) rotates right around 1 full turn (2*PI)
-      // Flight time ~ 2 * |vy| / gravity.
-      const flightTime = (2 * Math.abs(bottle.vy)) / spec.gravity;
-      // Target rotations scale from ~0.55 turns (low charge) to ~1.55 turns (high charge)
-      const targetTurns = (0.42 + charge * 0.98) * spec.spinFactor;
-      bottle.angVel = (targetTurns * Math.PI * 2) / flightTime;
+      const inGold = Math.abs(charge - spec.goldCenter) <= GOLD_HALF;
+      const inGreen = Math.abs(charge - spec.greenCenter) <= GREEN_HALF;
+
+      if (inGold) {
+        bottle.plannedOutcome = "cap";
+        bottle.targetAngle = Math.PI * 3; // Clean 540° upside-down Cap Flip!
+        bottle.peakHeight = 235;
+        bottle.flightDuration = 0.88;
+      } else if (inGreen) {
+        bottle.plannedOutcome = "upright";
+        bottle.targetAngle = Math.PI * 2; // Clean 360° upright flip!
+        bottle.peakHeight = 195;
+        bottle.flightDuration = 0.78;
+      } else {
+        bottle.plannedOutcome = "miss";
+        bottle.peakHeight = 135 + charge * 105;
+        bottle.flightDuration = 0.68 + charge * 0.22;
+        // Visually land tilted/sideways (never accidentally upright or cap)
+        const tilt = charge < spec.greenCenter ? Math.PI * 1.45 : Math.PI * 2.52;
+        bottle.targetAngle = tilt;
+      }
 
       sound.bottleWhoosh();
     };
@@ -321,7 +346,7 @@ export default function BottleFlipGame({
       }
 
       if (phase === "charging") {
-        charge += chargeDir * dt * 1.35;
+        charge += chargeDir * dt * spec.barSpeed;
         if (charge >= 1) {
           charge = 1;
           chargeDir = -1;
@@ -332,26 +357,19 @@ export default function BottleFlipGame({
         // Slight squash anticipation
         bottle.y = TABLE_Y - spec.height / 2 + charge * 7;
       } else if (phase === "flying") {
-        bottle.x += bottle.vx * dt;
-        bottle.y += bottle.vy * dt;
-        bottle.vy += spec.gravity * dt;
-        bottle.angle += bottle.angVel * dt;
-
-        // Landed on table?
+        bottle.flightElapsed += dt;
+        const t = Math.min(1, bottle.flightElapsed / bottle.flightDuration);
         const bottomY = TABLE_Y - spec.height / 2;
-        if (bottle.vy > 0 && bottle.y >= bottomY) {
+        bottle.x = W / 2 + bottle.driftX * t;
+        bottle.y = bottomY - 4 * bottle.peakHeight * t * (1 - t);
+        bottle.angle = bottle.targetAngle * t;
+
+        if (t >= 1) {
           bottle.y = bottomY;
-          bottle.vx = 0;
-          bottle.vy = 0;
           phase = "settled";
           settleTimer = 1.05;
 
-          // Normalize angle to [0, 2*PI)
-          const norm = ((bottle.angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-          const distUpright = Math.min(norm, Math.PI * 2 - norm);
-          const distCap = Math.abs(norm - Math.PI);
-
-          if (distUpright < 0.48) {
+          if (bottle.plannedOutcome === "upright") {
             // LANDED UPRIGHT!!
             bottle.angle = 0;
             lastOutcome = "upright";
@@ -378,7 +396,7 @@ export default function BottleFlipGame({
             CHARACTERS.forEach((c) => {
               speeches[c.id] = { text: randomFrom(FLIP_SHOUTS), timer: 1.5 };
             });
-          } else if (distCap < 0.34) {
+          } else if (bottle.plannedOutcome === "cap") {
             // LEGENDARY CAP FLIP!!
             bottle.angle = Math.PI;
             lastOutcome = "cap";
@@ -407,7 +425,7 @@ export default function BottleFlipGame({
             });
           } else {
             // TIPPED OVER!
-            bottle.angle = norm < Math.PI ? Math.PI / 2 : -Math.PI / 2;
+            bottle.angle = charge < spec.greenCenter ? -Math.PI / 2 : Math.PI / 2;
             bottle.y = TABLE_Y - spec.width / 2;
             lastOutcome = "miss";
             streak = 0;
@@ -420,7 +438,7 @@ export default function BottleFlipGame({
               color: "#f87171",
               life: 0.9,
             });
-            banner = "😅 So close! Aim for the GREEN sweet spot on the power bar!";
+            banner = "😅 So close! Aim for GREEN (upright) or GOLD (Cap Flip)!";
             const randomKid = randomFrom(CHARACTERS);
             speeches[randomKid.id] = { text: randomFrom(MISS_SHOUTS), timer: 1.3 };
           }
@@ -534,26 +552,16 @@ export default function BottleFlipGame({
       ctx.fill();
       ctx.stroke();
 
-      // Sweet spot indicator (Green = Upright Land, Gold = Cap Flip zone!)
-      // Compute sweet spot center based on bottle spinFactor so every bottle has a fair, learnable sweet spot!
-      // targetTurns = (0.42 + charge * 0.98) * spinFactor.
-      // Upright (1.0 turn) => charge = (1 / spinFactor - 0.42) / 0.98
-      const uprightIdeal = Math.max(0.15, Math.min(0.88, (1.0 / spec.spinFactor - 0.42) / 0.98));
-      const capIdeal = Math.max(0.2, Math.min(0.95, (1.5 / spec.spinFactor - 0.42) / 0.98));
-
-      // Green upright sweet zone
-      const greenLeft = barX + Math.max(0, uprightIdeal - 0.085) * barW;
-      const greenWidth = Math.min(barW - (greenLeft - barX), 0.17 * barW);
-      ctx.fillStyle = "rgba(34, 197, 94, 0.55)";
+      // Sweet spot indicator (EXACT match with release logic!)
+      const greenLeft = barX + (spec.greenCenter - GREEN_HALF) * barW;
+      const greenWidth = GREEN_HALF * 2 * barW;
+      ctx.fillStyle = "rgba(34, 197, 94, 0.65)";
       ctx.fillRect(greenLeft, barY + 3, greenWidth, barH - 6);
 
-      // Gold cap-flip zone (if reachable within charge <= 0.96)
-      if (capIdeal <= 0.96 && Math.abs(capIdeal - uprightIdeal) > 0.14) {
-        const goldLeft = barX + Math.max(0, capIdeal - 0.045) * barW;
-        const goldWidth = Math.min(barW - (goldLeft - barX), 0.09 * barW);
-        ctx.fillStyle = "rgba(250, 204, 21, 0.72)";
-        ctx.fillRect(goldLeft, barY + 3, goldWidth, barH - 6);
-      }
+      const goldLeft = barX + (spec.goldCenter - GOLD_HALF) * barW;
+      const goldWidth = GOLD_HALF * 2 * barW;
+      ctx.fillStyle = "rgba(250, 204, 21, 0.85)";
+      ctx.fillRect(goldLeft, barY + 3, goldWidth, barH - 6);
 
       // Current charge marker
       if (phase === "charging" || charge > 0) {
